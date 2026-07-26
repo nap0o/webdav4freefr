@@ -23,7 +23,10 @@ $auth_users = [
 // --- Environment Init ---
 if(LOG_ENABLED && !file_exists(LOG_PATH)) { @mkdir(LOG_PATH, 0755, true); }
 if(LOG_ENABLED && !file_exists(LOG_PATH.'/.htaccess')) { @file_put_contents(LOG_PATH.'/.htaccess', "Deny from all"); }
-if(session_status()===PHP_SESSION_NONE) session_start();
+if(session_status()===PHP_SESSION_NONE) {
+    session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'domain' => '', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    session_start();
+}
 if(empty($_SESSION['t'])) $_SESSION['t']=bin2hex(random_bytes(32));
 $csrf=$_SESSION['t'];
 
@@ -106,16 +109,7 @@ if($shareToken && ctype_alnum($shareToken)){
                     <!DOCTYPE html>
                     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
                     <title>Protected Share</title>
-                    <style>
-                    body{font-family:system-ui,-apple-system,sans-serif;background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;color:#333}
-                    .box{background:#fff;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.05);width:100%;max-width:320px;text-align:center}
-                    input{width:100%;padding:12px;margin:20px 0;border:2px solid #e0e0e0;border-radius:8px;box-sizing:border-box;font-size:16px}
-                    input:focus{outline:none;border-color:#5c6bc0}
-                    button{background:#5c6bc0;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;width:100%}
-                    button:hover{background:#3949ab}
-                    .err{color:#e53935;font-size:14px;margin-bottom:10px;display:block}
-                    h3{margin-top:0;color:#1a237e}
-                    </style></head>
+                    <?= get_global_css() ?></head>
                     <body><div class="box">
                         <h3>Protected File</h3>
                         <p style="color:#78909c;font-size:14px;margin-bottom:0"><?=htmlspecialchars($fname)?></p>
@@ -204,7 +198,7 @@ if(!$auth_ok && isset($_SESSION['auth_user']) && isset($auth_users[$_SESSION['au
 }
 
 if(!$auth_ok) {
-    if(isset($_POST['login_u']) && isset($_POST['login_p'])) {
+    if(isset($_POST['login_u']) && isset($_POST['login_p']) && strlen($_POST['login_p']) <= 256) {
         $lu = $_POST['login_u'];
         if(isset($auth_users[$lu]) && password_verify($_POST['login_p'], $auth_users[$lu])) {
             session_regenerate_id(true);
@@ -240,8 +234,8 @@ if(!$auth_ok) {
             <body class="<?=$_COOKIE['dk']??''?>"><div class="box"><h2>EasyWebDAV</h2><hr>
             <form method="post">
             <?php if(isset($login_err)): ?><div class="err"><?=$login_err?></div><?php endif; ?>
-            <div class="fg"><label>Username</label><input type="text" name="login_u" required autofocus></div>
-            <div class="fg"><label>Password</label><input type="password" name="login_p" required></div>
+            <div class="fg"><label>Username</label><input type="text" name="login_u" required autofocus maxlength="256"></div>
+            <div class="fg"><label>Password</label><input type="password" name="login_p" required maxlength="256"></div>
             <button>Sign in</button></form></div></body></html>
             <?php
             exit;
@@ -608,6 +602,7 @@ class Dav {
             header { padding: 12px 16px; width: 100%; box-sizing: border-box; }
             header > div { gap: 8px !important; }
             header > div:first-child span { display: none; }
+            header > div:first-child a { white-space: nowrap; flex-shrink: 0; }
             .nav-input { display: none; }
             .btn { padding: 8px 12px; font-size: 13px; }
             table, tbody, tr, td { display: block; width: 100%; box-sizing: border-box; min-width: 0 !important; }
@@ -835,3 +830,75 @@ class Dav {
 <script data-cfasync="false">
 var _s=document.createElement('script');_s.src='data:text/javascript;base64,'+'<?=base64_encode($js_code)?>';document.head.appendChild(_s);
 </script></body></html><?php } } ?>
+
+
+<?php
+// --- UI Layout & Assets ---
+function get_global_css() {
+    ob_start();
+    ?>
+    <style>
+    
+                    body{font-family:system-ui,-apple-system,sans-serif;background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;color:#333}
+                    .box{background:#fff;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.05);width:100%;max-width:320px;text-align:center}
+                    input{width:100%;padding:12px;margin:20px 0;border:2px solid #e0e0e0;border-radius:8px;box-sizing:border-box;font-size:16px}
+                    input:focus{outline:none;border-color:#5c6bc0}
+                    button{background:#5c6bc0;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;width:100%}
+                    button:hover{background:#3949ab}
+                    .err{color:#e53935;font-size:14px;margin-bottom:10px;display:block}
+                    h3{margin-top:0;color:#1a237e}
+                    
+    </style>
+    <?php
+    return ob_get_clean();
+}
+
+function get_global_js() {
+    ob_start();
+    ?>
+    <script>
+    
+    </script>
+    <?php
+    return ob_get_clean();
+}
+
+function render_html_page($title, $content, $is_login = false) {
+    $dk = $_COOKIE['dk'] ?? '';
+    $body_class = $is_login ? "$dk login-page" : $dk;
+    ob_start();
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title><?= htmlspecialchars($title) ?></title>
+    <?= $is_login ? '' : get_global_css() ?>
+    <?php if($is_login): ?>
+    <style>
+    :root{--bg-g:linear-gradient(135deg, #e0f7fa 0%, #fce4ec 100%);--bg:rgba(255,255,255,0.94);--tx:#263238;--bd:#cfd8dc;--p:#5c6bc0;--pd:#3949ab;--er:#ef5350;--sh:0 12px 32px -8px rgba(0,0,0,0.08)}
+    .dark{--bg-g:linear-gradient(135deg, #1a1c29 0%, #25273c 100%);--bg:rgba(30,32,42,0.96);--tx:#b0b8c4;--bd:#374151;--p:#818cf8;--pd:#6366f1;--er:#f87171;--sh:0 12px 32px -8px rgba(0,0,0,0.4)}
+    body.login-page{margin:0;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,Roboto,sans-serif;background:var(--bg-g);color:var(--tx);display:flex;justify-content:center;align-items:center;height:100vh;background-attachment:fixed;line-height:1.6}
+    .login-page .box{background:var(--bg);padding:40px 36px;border-radius:20px;box-shadow:var(--sh);border:1px solid var(--bd);width:100%;max-width:320px;backdrop-filter:blur(20px);box-sizing:border-box}
+    .login-page h2{margin-top:0;color:var(--tx);font-size:26px;font-weight:600;text-align:center;margin-bottom:24px}
+    .login-page hr{border:none;border-top:1px solid var(--bd);margin-bottom:28px}
+    .login-page .fg{margin-bottom:20px;text-align:left}
+    .login-page label{display:block;margin-bottom:8px;font-size:13px;color:var(--pd);font-weight:600}
+    .login-page input{width:100%;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;background:rgba(255,255,255,0.8);color:var(--tx);box-sizing:border-box;font-size:15px;transition:all .2s}
+    .dark .login-page input{background:rgba(40,40,50,0.8)}
+    .login-page input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 4px rgba(92,107,192,0.15)}
+    .login-page button{background:var(--p);color:#fff;border:none;padding:12px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:8px;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.04)}
+    .login-page button:hover{background:var(--pd);transform:translateY(-1px);box-shadow:0 4px 14px rgba(92,107,192,0.3)}
+    .login-page .err{color:var(--er);font-size:14px;margin-bottom:15px;text-align:center;font-weight:600}
+    </style>
+    <?php endif; ?>
+</head>
+<body class="<?= htmlspecialchars($body_class) ?>">
+    <?= $content ?>
+    <?= $is_login ? '' : get_global_js() ?>
+</body>
+</html>
+    <?php
+    return ob_get_clean();
+}

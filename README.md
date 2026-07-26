@@ -1,287 +1,89 @@
-# EasyWebDAV-PHP
+# webdav4freefr
 
-Single-file PHP **WebDAV server + web file manager** with **HTTP Basic Auth**, **share links**, and optional **operation logs**.
+webdav4freefr 是一款极致轻量的单文件 **PHP WebDAV 服务**与**可视化文件管理器**。本项目经过深度精简与重构，**专为 Free.fr 免费空间量身定制**。它内置 HTTP Basic Auth 安全鉴权与操作日志记录，能够完美适应 Free.fr 的底层环境与资源限制，帮助您零成本打造出稳定、私密的轻量级个人云盘。
 
----
+## ✨ 核心特性 (Features)
 
-## What it does (matches the script)
-
-* **Basic Auth login**
-
-  * First run: the first successful Basic Auth credentials are stored (hashed) in `/.htpasswd.php`.
-  * Next runs: credentials are verified against `/.htpasswd.php`.
-* **WebDAV endpoint**
-  Supports: `OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, COPY, MOVE, LOCK, UNLOCK`
-* **Web UI (directory view)**
-
-  * Upload file, create folder
-  * Rename / copy / move / delete
-  * Download
-  * Share manager (create/update/unshare)
-  * CN/EN + dark mode
-* **Share links**
-
-  * Preferred: `/s/<token>/filename` (PATH_INFO style)
-  * Also supported: `?s=<token>`
-  * Share metadata stored in `/.shares.php` (expires/max_uses/uses)
-* **Logs (optional)**
-
-  * Daily logs in `./logs/YYYY-MM-DD.log`
-  * UI actions: `?log_action=download` and `?log_action=clear`
+* **多用户 Basic Auth 登录**
+  * 通过 `index.php` 中的 `$auth_users` 数组进行静态配置。
+  * 允许添加多个拥有各自独立密码的用户账号，安全可靠。
+* **完整的 WebDAV 支持**
+  * 完美支持各大主流客户端（如 AList、RaiDrive、Finder 等）。
+  * 支持方法：`OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, COPY, MOVE, LOCK, UNLOCK`。
+* **操作日志 (可选)**
+  * 每日操作日志自动记录到 `./logs/YYYY-MM-DD.log`。
+  * 可以在 Web 界面中通过 `?log_action=download` 下载日志，或 `?log_action=clear` 清空日志。
 
 ---
 
-## Requirements
+## 🚀 一、 部署基本步骤 (free.fr)
 
-* PHP **7.4+** (PHP 8.x recommended)
-* Web server:
+free.fr 提供了免费的 PHP 运行环境，非常适合部署该项目。具体步骤如下：
 
-  * **Apache** (works out-of-the-box with generated `.htaccess`)
-  * **Nginx + PHP-FPM** (manual config required)
-  * **Caddy + PHP-FPM** (manual config required)
-* The script directory must be writable by PHP (it creates `storage/`, `logs/`, and config files)
-
----
-
-## Files created by the script
-
-* `./storage/` — storage root for files and folders
-* `./logs/` — logs (only if `LOG_ENABLED = true`)
-* `./.htpasswd.php` — stored admin username + password hash
-* `./.shares.php` — share tokens and settings
+1. **下载源码**：下载本项目的全部源码并解压到本地。
+2. **上传文件**：通过 [在线FTP (https://net2ftp.alwaysdata.net)](https://net2ftp.alwaysdata.net/)，将除了 `worker.js` 之外的**所有代码文件**直接上传到 free.fr 的根目录。
+3. **初始登录**：文件上传完毕后，你可以直接使用默认账号 `admin`，默认密码 `admin888` 登录访问。
+4. **修改密码（强烈建议）**：为了安全起见，请通过浏览器访问 `http://{你的用户名}.free.fr/gen.php`，输入你想要设置的明文新密码，生成并复制专用的密文哈希串。
+5. **配置新账号**：使用代码编辑器或直接在 FTP 端编辑 `index.php` 文件，找到大概第 20 行的 `$auth_users` 数组：
+   ```php
+   $auth_users = [
+       '你的用户名' => '你刚刚复制的密文密码'
+   ];
+   ```
+   修改完成后保存并覆盖上传。至此，您的专属网盘就已经部署完成了！
 
 ---
 
-## Quick Start (any server)
+## 🔗 二、 使用 WebDAV 服务（以 AList / OpenList 为例）
 
-1. Put `index.php` into your site root, e.g.:
+配置完成后，您可以非常方便地将其挂载到第三方工具（如 AList）中：
 
-   * `/var/www/easywebdav/index.php`
-2. Open the site in a browser.
-3. When prompted for **Basic Auth**, enter the username/password you want.
-
-   * On first run, these are saved to `/.htpasswd.php`.
-4. Upload/manage files in the UI. All files go to `./storage/`.
-
----
-
-## Recommended security baseline
-
-These are practical notes based on how the script works:
-
-* **Use HTTPS** whenever possible (Basic Auth over HTTP is not encrypted).
-* **Deny direct web access** to:
-
-  * `/.htpasswd.php`
-  * `/.shares.php`
-  * `/logs/`
-  * `/storage/` (recommended; the app serves files itself)
-* After first setup, **tighten permissions**:
-
-  * `chmod 600 .htpasswd.php`
-  * (optional) `chmod 600 .shares.php`
-
-> Why: even though the app itself “hides” these names in the UI, your web server might still allow direct URL access unless you block it.
+1. 登录 AList 后台，进入 **存储 -> 添加**。
+2. 选择驱动类型为 **WebDAV**。
+3. 填写挂载路径和备注名称。
+4. 关键配置项填写如下：
+   * **WebDAV 路径 (URL)**：`http://{你的用户名}.free.fr/index.php` (请务必带上 `/index.php` 后缀)
+   * **用户名**：你在 `index.php` 中配置的账号名。
+   * **密码**：你在 `gen.php` 界面输入的**明文密码**（注意不是密文）。
+5. 保存即可成功挂载。
 
 ---
 
-## Apache (works with generated `.htaccess`)
+## 🌐 三、 通过 Cloudflare Worker 反向代理绑定自定义域名
 
-The script auto-creates:
+鉴于 free.fr 的免费域名在国内部分地区可能存在网络连通性问题，或者如果您希望使用自己的顶级域名，我们提供了一个基于 Cloudflare Worker 的反代方案。
 
-* `./storage/.htaccess` with `Deny from all`
-* `./.htaccess` disabling indexes and helping auth header handling
+1. 打开项目根目录下的 `worker.js`，修改顶部常量配置：
+   ```javascript
+   // 替换为你实际的 free.fr 域名
+   const TARGET_DOMAIN = '{你的用户名}.free.fr';
+   
+   // 替换为你准备绑定到 Worker 上的自定义域名
+   const WORKER_DOMAIN = '{你的自定义域名.com}';
+   ```
+2. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，在左侧导航栏找到并进入 **Workers & Pages**。
+3. 点击 **Create Application** -> **Create Worker**，随意命名后点击部署。
+4. 部署后点击 **Edit code** 进入代码编辑器。
+5. 将你修改好的 `worker.js` 中的全部代码复制，并覆盖到 Cloudflare Worker 的编辑器中。
+6. 点击右上角的 **Save and Deploy (保存并部署)**。
+7. 最后，将你的自定义域名路由绑定到这个 Worker 上。
 
-### Optional: Apache hard rules (recommended)
-
-Add to your site config (preferred) or `.htaccess`:
-
-```apache
-<FilesMatch "^\.((htpasswd)|(shares))\.php$">
-  Require all denied
-</FilesMatch>
-
-<LocationMatch "^/logs(?:/|$)">
-  Require all denied
-</LocationMatch>
-
-<LocationMatch "^/storage(?:/|$)">
-  Require all denied
-</LocationMatch>
-```
+部署完成后，你就可以通过自定义域名顺畅地访问和使用 WebDAV 服务了！
 
 ---
 
-## Nginx + PHP-FPM (example config)
+## 💡 四、关于 Free.fr 的文件上传限制说明
 
-> This config:
->
-> * keeps share links working (`/s/<token>`) by passing PATH_INFO
-> * blocks sensitive paths
-> * supports WebDAV verbs and larger uploads
+Free.fr 作为一个免费共享空间，其底层的 PHP 环境有着非常严格的资源限制（通常 `upload_max_filesize` 和 `post_max_size` 均为 10MB，且 `max_execution_time` 为 30 秒）。
 
-Create `/etc/nginx/sites-available/easywebdav.conf`:
+针对这些限制，本项目的两种上传方式会有截然不同的表现：
 
-```nginx
-server {
-    listen 80;
-    server_name example.com;
+### 1. 原生 Web UI 上传（浏览器操作）
+* **表现**：严格受限于 10MB。
+* **原因**：Web 界面使用的是标准的 HTML 表单 POST 上传。这种方式会经过 PHP 引擎的完整解析，一旦文件超过 `post_max_size` (10MB)，请求会立刻被 PHP 核心拦截并丢弃。
 
-    root /var/www/easywebdav;
-    index index.php;
-
-    # ---- SECURITY: block sensitive things ----
-    location = /.htpasswd.php { deny all; }
-    location = /.shares.php   { deny all; }
-    location ^~ /logs/        { deny all; }
-    location ^~ /storage/     { deny all; }
-    location ~ /\.            { deny all; }  # optional: block all dotfiles
-
-    # ---- ROUTING: send everything through index.php (PATH_INFO support) ----
-    location / {
-        try_files $uri $uri/ /index.php$uri?$args;
-    }
-
-    # ---- PHP-FPM ----
-    location ~ \.php($|/) {
-        include fastcgi_params;
-        fastcgi_pass unix:/run/php/php8.2-fpm.sock;  # change to your PHP-FPM socket/host
-
-        fastcgi_split_path_info ^(.+\.php)(/.*)$;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_param PATH_INFO $fastcgi_path_info;
-
-        # Upload size and timeouts (adjust as needed)
-        client_max_body_size 2g;
-        fastcgi_read_timeout 300;
-        fastcgi_send_timeout 300;
-    }
-}
-```
-
-Enable and reload:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/easywebdav.conf /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-### Nginx HTTPS (basic idea)
-
-If you use Let’s Encrypt, create a second `server { listen 443 ssl; ... }` block and reuse the same locations.
-Always prefer HTTPS for Basic Auth.
-
----
-
-## Caddy + PHP-FPM (example config)
-
-Create `/etc/caddy/Caddyfile`:
-
-```caddy
-example.com {
-    root * /var/www/easywebdav
-
-    # ---- SECURITY: block sensitive things ----
-    @secrets path /.htpasswd.php /.shares.php
-    respond @secrets 403
-
-    @logs path /logs/*
-    respond @logs 403
-
-    @storage path /storage/*
-    respond @storage 403
-
-    # Optional: block dotfiles
-    @dotfiles path /.*
-    respond @dotfiles 403
-
-    # ---- ROUTING + PHP ----
-    # Keep PATH_INFO working for /s/<token>
-    try_files {path} {path}/ /index.php{path}?{query}
-
-    php_fastcgi unix//run/php/php8.2-fpm.sock
-    file_server
-}
-```
-
-Reload:
-
-```bash
-sudo caddy reload --config /etc/caddy/Caddyfile
-```
-
-### Caddy on LAN/IP (no public cert)
-
-Use internal TLS:
-
-```caddy
-https://192.168.1.10 {
-    tls internal
-    root * /var/www/easywebdav
-    # (same blocks as above)
-}
-```
-
----
-
-## WebDAV client usage
-
-Use your WebDAV client with:
-
-* `https://example.com/`
-  (or whatever base URL you installed it at)
-
-Authenticate using the same Basic Auth username/password.
-
----
-
-## Share links
-
-* PATH_INFO (recommended):
-  `https://example.com/s/<token>/filename.ext`
-* Query fallback:
-  `https://example.com/?s=<token>`
-
-Share settings live in `/.shares.php`, and “uses” increments automatically on each successful access.
-
----
-
-## Common issues & fixes
-
-### 1) Share links `/s/<token>` don’t work
-
-Cause: PATH_INFO not forwarded.
-
-Fix:
-
-* **Nginx**: ensure `try_files ... /index.php$uri?...` and `fastcgi_split_path_info` + `PATH_INFO`
-* **Caddy**: ensure `try_files ... /index.php{path}?...`
-
-### 2) Upload fails / 413 Request Entity Too Large
-
-Fix:
-
-* **Nginx**: increase `client_max_body_size`
-* Also check PHP: `upload_max_filesize` and `post_max_size`
-
-### 3) Permissions errors
-
-Ensure the PHP user can write:
-
-* `./storage/`, `./logs/`, and create `/.htpasswd.php`, `/.shares.php`
-
----
-
-## Configuration knobs (in code)
-
-At the top of `index.php`:
-
-* `LOG_ENABLED` (true/false)
-* `LOG_PATH` (default `./logs`)
-
----
-
-## Notes
-
-* If `/.htpasswd.php` is deleted, the script enters “first login creates admin” mode again.
-* For better protection, block sensitive paths at the web server level (examples above) and prefer HTTPS.
+### 2. 挂载 WebDAV 服务上传（如使用 AList / OpenList）
+* **表现**：可以**突破 10MB 的限制**，最高可达接近 **100MB**。
+* **原因**：第三方 WebDAV 客户端上传文件使用的是原生 HTTP `PUT` 二进制流。`webdav4freefr` 的底层代码（`Dav::PUT`）巧妙地使用了 `php://input` 数据流直写磁盘的方式，完全绕过了 PHP 表单解析引擎的拦截。
+* **为什么是 100MB？**：这并非 Free.fr 的限制，而是如果您使用了 Cloudflare Worker 进行反代，Cloudflare 免费版的单次请求载荷 (Payload) 上限为 100MB。
+* **注意事项**：由于 `max_execution_time` (30秒) 依然生效，要成功“偷渡” 100MB 的大文件，要求您的 WebDAV 客户端到 Free.fr 之间的网络传输速度足够快（大于 3.5MB/s），以确保在 30 秒内传输完毕，否则进程仍会被强行终止。

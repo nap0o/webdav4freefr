@@ -1,8 +1,8 @@
 <?php
 /**
- * EasyWebDAV - Single File WebDAV Server & File Manager
- * Optimized for UI/UX and Performance
- * By Prince 2025.11 | https://github.com/Andeasw/EasyWebDAV-PHP
+ * webdav4freefr - Single File WebDAV Server & File Manager
+ * Optimized for free.fr Deployment
+ * Based on EasyWebDAV | https://github.com/nap0o/webdav4freefr
  */
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
@@ -14,8 +14,15 @@ define('LOG_PATH', __DIR__.'/logs');
 @ignore_user_abort(true);
 date_default_timezone_set('PRC');
 
+// --- User Configuration ---
+// 请在这里配置你的用户账号密码,支持多用户
+$auth_users = [
+    'admin' => '$2y$12$OxsIjNi.yw6Zw4PnW8jvieo7EXzhWZAsBd5/vQlyZnVNI1A/13wTm'
+];
+
 // --- Environment Init ---
-if(LOG_ENABLED && !file_exists(LOG_PATH)) @mkdir(LOG_PATH, 0755, true);
+if(LOG_ENABLED && !file_exists(LOG_PATH)) { @mkdir(LOG_PATH, 0755, true); }
+if(LOG_ENABLED && !file_exists(LOG_PATH.'/.htaccess')) { @file_put_contents(LOG_PATH.'/.htaccess', "Deny from all"); }
 if(session_status()===PHP_SESSION_NONE) session_start();
 if(empty($_SESSION['t'])) $_SESSION['t']=bin2hex(random_bytes(32));
 $csrf=$_SESSION['t'];
@@ -24,11 +31,9 @@ $csrf=$_SESSION['t'];
 define('ROOT', __DIR__);
 define('S_NAME', basename($_SERVER['SCRIPT_NAME']));
 define('S_PATH', ROOT.'/storage');
-define('AUTH_F', ROOT.'/.htpasswd.php');
 define('SHARE_F', ROOT.'/.shares.php');
-define('DENY', ['.','..','.htaccess','.htpasswd.php','.shares.php',S_NAME,basename(__FILE__)]);
+define('DENY', ['.','..','.htaccess','.shares.php',S_NAME,basename(__FILE__)]);
 
-$isIdx = S_NAME === 'index.php';
 $proto = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http');
 $host  = $_SERVER['HTTP_HOST'];
 $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
@@ -41,11 +46,11 @@ if(!file_exists(S_PATH.'/.htaccess')) @file_put_contents(S_PATH.'/.htaccess', "D
 
 $htPath = ROOT.'/.htaccess';
 $htContent = "Options -Indexes\nRewriteEngine On\n";
-$htContent .= "RewriteRule ^(\.htpasswd\.php|\.shares\.php|logs/) - [F,L]\n";
+$htContent .= "RewriteRule ^(\.shares\.php|logs/) - [F,L]\n";
 $htContent .= "RewriteRule ^s-[a-zA-Z0-9]+\.php(.*)$ ".S_NAME."$1 [L,QSA]\n"; 
 $htContent .= "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]";
 
-if(!file_exists($htPath) || md5(file_get_contents($htPath)) !== md5($htContent)) {
+if(!file_exists($htPath)) {
     @file_put_contents($htPath, $htContent);
 }
 
@@ -62,6 +67,9 @@ function client_ip() {
 function log_action($action, $details='', $user='', $st='success'){
     if(!LOG_ENABLED) return;
     $user = $user ?: ($_SERVER['PHP_AUTH_USER'] ?? 'guest');
+    $user = str_replace(["\r", "\n"], ' ', $user);
+    $action = str_replace(["\r", "\n"], ' ', $action);
+    $details = str_replace(["\r", "\n"], ' ', $details);
     $log = sprintf("[%s] [%s] [%s] [%s] [%s] %s\n", date('Y-m-d H:i:s'), $user, client_ip(), strtoupper($st), $action, $details);
     @file_put_contents(LOG_PATH.'/'.date('Y-m-d').'.log', $log, FILE_APPEND | LOCK_EX);
 }
@@ -181,31 +189,66 @@ if($shareToken && ctype_alnum($shareToken)){
 }
 
 // --- Authentication ---
-if(!file_exists(AUTH_F)){
-    if(!empty($_SERVER['PHP_AUTH_USER']) && !empty($_SERVER['PHP_AUTH_PW'])){
-        @file_put_contents(AUTH_F, "<?php\nreturn ".var_export(['u'=>$_SERVER['PHP_AUTH_USER'],'h'=>password_hash($_SERVER['PHP_AUTH_PW'],PASSWORD_DEFAULT)],true).";");
-        @chmod(AUTH_F, 0600);
-        log_action('INITIAL_SETUP', 'User: '.$_SERVER['PHP_AUTH_USER'], 'system');
-    } else {
-        header('WWW-Authenticate: Basic realm="Install"');
-        header('HTTP/1.0 401 Unauthorized');
-        die('Initial login with admin credentials.');
-    }
+$isWebDavReq = ($_SERVER['REQUEST_METHOD'] !== 'GET' && $_SERVER['REQUEST_METHOD'] !== 'POST') || isset($_SERVER['PHP_AUTH_USER']) || isset($_SERVER['HTTP_AUTHORIZATION']) || isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+$auth_ok = false;
+$u = '';
+
+if(isset($_GET['action']) && $_GET['action'] === 'logout') {
+    unset($_SESSION['auth_user']);
+    header("Location: ".BASE.'/'.S_NAME); exit;
 }
-$ac = include AUTH_F;
-$u = $_SERVER['PHP_AUTH_USER'] ?? '';
-$p = $_SERVER['PHP_AUTH_PW'] ?? '';
-if($u !== $ac['u'] || !password_verify($p, $ac['h'])){
+
+if(!$auth_ok && isset($_SESSION['auth_user']) && isset($auth_users[$_SESSION['auth_user']])) {
+    $auth_ok = true;
+    $u = $_SESSION['auth_user'];
+}
+
+if(!$auth_ok) {
+    if(isset($_POST['login_u']) && isset($_POST['login_p'])) {
+        $lu = $_POST['login_u'];
+        if(isset($auth_users[$lu]) && password_verify($_POST['login_p'], $auth_users[$lu])) {
+            session_regenerate_id(true);
+            $_SESSION['auth_user'] = $lu;
+            log_action('LOGIN', 'Web: '.$lu, $lu);
+            header("Location: ".BASE.'/'.S_NAME); exit;
+        } else {
+            $login_err = 'Invalid credentials';
+            log_action('AUTH_FAILED', 'Web user: '.$lu, $lu, 'failed');
+        }
+    }
+
+    $u_b = $_SERVER['PHP_AUTH_USER'] ?? '';
+    $p_b = $_SERVER['PHP_AUTH_PW'] ?? '';
     $h = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-    if($h && preg_match('/Basic\s+(.*)$/i', $h, $m)) list($u, $p) = explode(':', base64_decode($m[1]), 2);
-    if($u !== $ac['u'] || !password_verify($p, $ac['h'])){
-        log_action('AUTH_FAILED', 'User: '.$u, $u, 'failed');
-        header('WWW-Authenticate: Basic realm="EasyWebDAV"');
-        header('HTTP/1.0 401 Unauthorized');
-        die('Access Denied');
+    if(empty($u_b) && $h && preg_match('/Basic\s+(.*)$/i', $h, $m)) list($u_b, $p_b) = explode(':', base64_decode($m[1]), 2);
+
+    if(isset($auth_users[$u_b]) && password_verify($p_b, $auth_users[$u_b])) {
+        $auth_ok = true;
+        $u = $u_b;
+        log_action('LOGIN', 'WebDAV: '.$u, $u);
+    }
+
+    if(!$auth_ok) {
+        if($isWebDavReq) {
+            header('WWW-Authenticate: Basic realm="EasyWebDAV"');
+            header('HTTP/1.0 401 Unauthorized');
+            die('Access Denied');
+        } else {
+            ?>
+            <!DOCTYPE html><html lang="<?=$lang??'cn'?>"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EasyWebDAV</title>
+            <style>:root{--bg-g:linear-gradient(135deg, #e0f7fa 0%, #fce4ec 100%);--bg:rgba(255,255,255,0.94);--tx:#263238;--bd:#cfd8dc;--p:#5c6bc0;--pd:#3949ab;--er:#ef5350;--sh:0 12px 32px -8px rgba(0,0,0,0.08)}.dark{--bg-g:linear-gradient(135deg, #1a1c29 0%, #25273c 100%);--bg:rgba(30,32,42,0.96);--tx:#b0b8c4;--bd:#374151;--p:#818cf8;--pd:#6366f1;--er:#f87171;--sh:0 12px 32px -8px rgba(0,0,0,0.4)}body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,Roboto,sans-serif;background:var(--bg-g);color:var(--tx);display:flex;justify-content:center;align-items:center;height:100vh;background-attachment:fixed;line-height:1.6}.box{background:var(--bg);padding:40px 36px;border-radius:20px;box-shadow:var(--sh);border:1px solid var(--bd);width:100%;max-width:320px;backdrop-filter:blur(20px);box-sizing:border-box}h2{margin-top:0;color:var(--tx);font-size:26px;font-weight:600;text-align:center;margin-bottom:24px}hr{border:none;border-top:1px solid var(--bd);margin-bottom:28px}.fg{margin-bottom:20px;text-align:left}label{display:block;margin-bottom:8px;font-size:13px;color:var(--pd);font-weight:600}input{width:100%;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;background:rgba(255,255,255,0.8);color:var(--tx);box-sizing:border-box;font-size:15px;transition:all .2s}.dark input{background:rgba(40,40,50,0.8)}input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 4px rgba(92,107,192,0.15)}button{background:var(--p);color:#fff;border:none;padding:12px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:8px;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.04)}button:hover{background:var(--pd);transform:translateY(-1px);box-shadow:0 4px 14px rgba(92,107,192,0.3)}.err{color:var(--er);font-size:14px;margin-bottom:15px;text-align:center;font-weight:600}</style></head>
+            <body class="<?=$_COOKIE['dk']??''?>"><div class="box"><h2>EasyWebDAV</h2><hr>
+            <form method="post">
+            <?php if(isset($login_err)): ?><div class="err"><?=$login_err?></div><?php endif; ?>
+            <div class="fg"><label>Username</label><input type="text" name="login_u" required autofocus></div>
+            <div class="fg"><label>Password</label><input type="password" name="login_p" required></div>
+            <button>Sign in</button></form></div></body></html>
+            <?php
+            exit;
+        }
     }
 }
-log_action('LOGIN', 'User: '.$u, $u);
+
 
 // --- UI & Translation ---
 $lang = $_COOKIE['l'] ?? 'cn';
@@ -547,11 +590,14 @@ class Dav {
         .gh-lnk{display:inline-flex;align-items:center;justify-content:center;color:#78909c;transition:all 0.2s;text-decoration:none}
         .gh-lnk:hover{color:var(--p);transform:scale(1.1)}
         .gh-lnk svg{fill:currentColor}
-        .tg{background:0 0;border:none;cursor:pointer;padding:8px;border-radius:50%;color:var(--tx);transition:all 0.2s}
-        .tg:hover{background:rgba(0,0,0,0.08)}
-        .float-icon{animation:flt 3s ease-in-out infinite,shn 4s ease-in-out infinite;display:block}
-        @keyframes flt{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-        @keyframes shn{0%,100%{filter:drop-shadow(0 0 3px rgba(253,184,19,0.5))}50%{filter:drop-shadow(0 0 12px rgba(253,184,19,0.9))}}
+        .h-btn{background:0 0;border:none;color:#64748b;cursor:pointer;padding:8px;border-radius:8px;transition:color 0.2s;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;width:36px;height:36px;box-sizing:border-box}
+        .h-btn:hover{color:var(--p)}
+        .h-btn svg{width:20px;height:20px}
+        .tg{background:radial-gradient(circle, rgba(253,184,19,0.15) 0%, transparent 70%);border:none;cursor:pointer;padding:10px;border-radius:50%;color:var(--tx);transition:all 0.2s;display:flex;align-items:center;justify-content:center}
+        .tg:hover{background:radial-gradient(circle, rgba(253,184,19,0.25) 0%, transparent 70%);transform:scale(1.05)}
+        .float-icon{display:block}
+        body:not(.dark) .icon-sun{display:none}
+        body.dark .icon-moon{display:none}
         @media(max-width:768px){body{padding:0;display:block}.box{margin:0;width:100%;max-width:none;border:none;border-radius:0;min-height:100vh}.hm{display:none}.mb{padding:24px;width:95%}.nav-input{width:160px;font-size:13px}.col-2{grid-template-columns:1fr!important}}
         .form-group{margin-bottom:12px}
         .form-label{display:block;margin-bottom:6px;font-size:12px;color:var(--pd);font-weight:600}
@@ -586,12 +632,16 @@ class Dav {
             <div style="display:flex;align-items:center;gap:12px">
                 <a href="<?=$this->uri?>/" style="font-weight:700;text-decoration:none;color:var(--p);font-size:18px"><?=T('home')?></a>
                 <span style="color:var(--bd)">/</span>
-                <input class="nav-input" id="pathBar" value="<?=$this->req==='/'?'':ltrim($this->req,'/')?>" placeholder="<?=T('path_ph')?>" onkeydown="if(event.key==='Enter') goToPath(this.value)">
+                <input class="nav-input" id="pathBar" value="<?=htmlspecialchars($this->req==='/'?'':ltrim($this->req,'/'))?>" placeholder="<?=T('path_ph')?>" onkeydown="if(event.key==='Enter') goToPath(this.value)">
             </div>
-            <div style="display:flex;gap:14px;align-items:center">
-                <?php if(LOG_ENABLED): ?><a href="#" onclick="showLogs()" class="ab" title="<?=T('log_title')?>" style="padding:8px"><?=$I['log']?></a><?php endif; ?>
-                <button class="tg" onclick="mode()"><svg class="float-icon" width="24" height="24" viewBox="0 0 24 24" fill="#FDB813"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
-                <div style="font-size:13px;font-weight:600"><a href="?l=cn" style="text-decoration:none;color:<?=$lang=='cn'?'var(--p)':'#78909c'?>">CN</a> <span style="color:#cfd8dc">|</span> <a href="?l=en" style="text-decoration:none;color:<?=$lang=='en'?'var(--p)':'#78909c'?>">EN</a></div>
+            <div style="display:flex;gap:16px;align-items:center">
+                <button class="tg" onclick="mode()" style="width:44px;height:44px">
+                    <svg class="float-icon icon-moon" width="22" height="22" viewBox="0 0 24 24" fill="#FDB813"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                    <svg class="float-icon icon-sun" width="22" height="22" viewBox="0 0 24 24" fill="#FDB813"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41.39.39 1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41-.39-.39-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41.39.39 1.03.39 1.41 0l1.06-1.06z"></path></svg>
+                </button>
+                <?php if(LOG_ENABLED): ?><a href="#" onclick="showLogs()" class="h-btn" title="<?=T('log_title')?>"><?=$I['log']?></a><?php endif; ?>
+                <a href="?l=<?=$lang=='cn'?'en':'cn'?>" class="h-btn" style="font-size:15px;font-weight:700" title="Change Language"><?=$lang=='cn'?'EN':'CN'?></a>
+                <a href="?action=logout" class="h-btn" title="Logout"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg></a>
             </div>
         </header>
         <div class="bar">
@@ -599,13 +649,13 @@ class Dav {
             <a href="<?=$this->uri.'/'.implode('/',array_map('rawurlencode',$pp))?>" class="btn"><?=T('back')?></a>
             <?php endif;?>
             <form method="post" enctype="multipart/form-data" style="margin:0;display:flex">
-                <input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=$this->req?>">
+                <input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=htmlspecialchars($this->req)?>">
                 <div class="btn-group">
                     <label class="btn bp" title="<?=T('up')?>"><?=T('up')?><input type="file" name="f[]" hidden multiple onchange="this.form.submit()"></label>
                     <label class="btn bp" title="<?=T('up_folder')?>"><?=T('up_folder')?><input type="file" name="f[]" hidden multiple webkitdirectory mozdirectory onchange="this.form.submit()"></label>
                 </div>
             </form>
-            <form method="post" style="display:flex;gap:8px;margin:0;flex:1"><input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=$this->req?>"><input name="md" placeholder="<?=T('new')?>" required style="padding:8px 12px;border:2px solid var(--bd);border-radius:8px;outline:none;background:rgba(255,255,255,0.8);color:var(--tx);flex:1;min-width:100px;max-width:200px;font-size:14px"><button class="btn"><?=T('cr')?></button></form>
+            <form method="post" style="display:flex;gap:8px;margin:0;flex:1"><input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=htmlspecialchars($this->req)?>"><input name="md" placeholder="<?=T('new')?>" required style="padding:8px 12px;border:2px solid var(--bd);border-radius:8px;outline:none;background:rgba(255,255,255,0.8);color:var(--tx);flex:1;min-width:100px;max-width:200px;font-size:14px"><button class="btn"><?=T('cr')?></button></form>
             <div id="batch_acts" class="batch-bar">
                 <span><?=T('batch')?>:</span>
                 <button onclick="p('cp', null)" class="ab" title="<?=T('cp')?>"><?=$I['cp']?></button>
@@ -628,8 +678,8 @@ class Dav {
                         <td><a href="<?=$lk?>" class="lnk" target="<?=$d?'_self':'_blank'?>"><?=$d?$I['d']:$I['f']?><?=htmlspecialchars($f)?><?php if($shr): ?><span class="badge <?=$stCls[$st]?>"><?=$stTxt[$st]?></span><?php endif; ?></a></td>
                         <td class="hm"><?=$d?'-':$this->size(filesize($p))?></td><td class="hm"><?=date('Y-m-d H:i',filemtime($p))?></td>
                         <td><div class="acts">
-                            <?php if(!$d): ?><a href="<?=$lk?>?dl=1" class="ab" title="<?=T('dl')?>"><?=$I['dl']?></a><button onclick="shareFile('<?=addslashes($f)?>','<?=$sTok?>',<?=$shr?$shr['expires']:0?>,<?=$shr?$shr['max_uses']:0?>,<?=$shr?$shr['uses']:0?>,<?=$shr?$shr['start_ts']:0?>)" class="ab" title="<?=T('sh')?>"><?=$I['sh']?></button><?php endif; ?>
-                            <button onclick="p('rn','<?=$f?>')" class="ab" title="<?=T('rn')?>"><?=$I['ed']?></button><button onclick="p('cp','<?=$f?>')" class="ab" title="<?=T('cp')?>"><?=$I['cp']?></button><button onclick="p('mv','<?=$f?>')" class="ab" title="<?=T('mv')?>"><?=$I['mv']?></button><button onclick="p('rm','<?=$f?>')" class="ab del" title="<?=T('rm')?>"><?=$I['rm']?></button>
+                            <?php if(!$d): ?><a href="<?=$lk?>?dl=1" class="ab" title="<?=T('dl')?>"><?=$I['dl']?></a><button onclick="shareFile(<?=htmlspecialchars(json_encode($f), ENT_QUOTES)?>,'<?=$sTok?>',<?=$shr?$shr['expires']:0?>,<?=$shr?$shr['max_uses']:0?>,<?=$shr?$shr['uses']:0?>,<?=$shr?$shr['start_ts']:0?>)" class="ab" title="<?=T('sh')?>"><?=$I['sh']?></button><?php endif; ?>
+                            <button onclick="p('rn',<?=htmlspecialchars(json_encode($f), ENT_QUOTES)?>)" class="ab" title="<?=T('rn')?>"><?=$I['ed']?></button><button onclick="p('cp',<?=htmlspecialchars(json_encode($f), ENT_QUOTES)?>)" class="ab" title="<?=T('cp')?>"><?=$I['cp']?></button><button onclick="p('mv',<?=htmlspecialchars(json_encode($f), ENT_QUOTES)?>)" class="ab" title="<?=T('mv')?>"><?=$I['mv']?></button><button onclick="p('rm',<?=htmlspecialchars(json_encode($f), ENT_QUOTES)?>)" class="ab del" title="<?=T('rm')?>"><?=$I['rm']?></button>
                         </div></td>
                     </tr>
                     <?php endforeach; endif; ?>
@@ -637,8 +687,8 @@ class Dav {
             </table>
         </div>
         <div class="ft">
-            <span>&copy; <?=date('Y')?> EasyWebDAV-PHP</span>
-            <a href="https://github.com/Andeasw/EasyWebDAV-PHP" target="_blank" class="gh-lnk" title="GitHub Repo">
+            <span>&copy; <?=date('Y')?> WebDAV For Free.Fr</span>
+            <a href="https://github.com/nap0o/webdav4freefr" target="_blank" class="gh-lnk" title="GitHub Repo">
                 <svg width="22" height="22" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/></svg>
             </a>
         </div>
@@ -646,9 +696,9 @@ class Dav {
         <div id="md" class="mod"><div id="mb_cnt" class="mb sm"><h3 id="mt" style="margin-top:0"></h3><div id="mc"></div><div style="margin-top:24px;text-align:right;display:flex;justify-content:flex-end;gap:12px"><button class="btn" onclick="cl()"><?=T('cc')?></button><button class="btn bp" id="mok"><?=T('ok')?></button></div></div></div>
         <?php if(LOG_ENABLED): ?><div id="logModal" class="mod" style="display:none"><div class="mb" style="max-width:800px"><h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center"><span><?=T('log_title')?></span><div style="display:flex;gap:8px"><a href="?log_action=download" class="btn" style="font-size:13px"><?=T('log_download')?></a><a href="?log_action=clear" class="btn bd" style="font-size:13px" onclick="return confirm('Clear logs?')"><?=T('log_clear')?></a><button class="btn" onclick="cl()"><?=T('cc')?></button></div></h3><div style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.03);border-radius:10px;padding:16px;margin-top:16px"><pre style="margin:0;font-size:12px;line-height:1.5;color:var(--tx)"><?php if(LOG_ENABLED){$log_file=LOG_PATH.'/'.date('Y-m-d').'.log';echo htmlspecialchars(file_exists($log_file)?file_get_contents($log_file):'No logs today.');} ?></pre></div></div></div><?php endif; ?>
         <input id="q_lnk" value="" hidden>
-        <script>
-        const $=i=>document.getElementById(i), csrf='<?=$csrf?>', cur='<?=$this->req?>', base='<?=BASE?>';
-        function showToast(msg){const t=document.createElement('div');t.className='toast';t.innerHTML=`<div style="flex:1">${msg}</div><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>`;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);}
+        <?php ob_start(); ?>
+        const $=i=>document.getElementById(i), csrf='<?=$csrf?>', cur=<?=json_encode($this->req)?>, base='<?=BASE?>';
+        function showToast(msg){const t=document.createElement('div');t.className='toast';t.innerHTML=`<div style="flex:1">${msg}</div><button class="toast-close" onclick="this.parentElement.remove()">×</button>`;document.body.appendChild(t);setTimeout(()=>t.remove(),3000);}
         function mode(){document.body.classList.toggle('dark');document.cookie='dk='+(document.body.classList.contains('dark')?'dark':'')+';path=/;max-age=31536000';}
         function showLogs(){if($('logModal')) $('logModal').style.display='flex';}
         function cl(){$('md').style.display='none';if($('logModal')) $('logModal').style.display='none';}
@@ -677,14 +727,14 @@ class Dav {
             $('mok').onclick=()=>{
                 let val=$('iv')?$('iv').value:'';
                 let inputs = '<input type="hidden" name="t" value="'+csrf+'"><input name="act" value="'+a+'">';
-                items.forEach(i => { inputs += '<input name="n[]" value="'+i.replace(/"/g,'&quot;')+'">'; });
-                if(val) inputs += '<input name="'+(a=='rn'?'nn':'tg')+'" value="'+val.replace(/"/g,'&quot;')+'">';
+                items.forEach(i => { inputs += '<input name="n[]" value="'+i.replace(/"/g,'&#34;')+'">'; });
+                if(val) inputs += '<input name="'+(a=='rn'?'nn':'tg')+'" value="'+val.replace(/"/g,'&#34;')+'">';
                 pf(inputs);
             }
         }
         function genLink(tok){let rnd = Math.random().toString(36).substring(2,7); return base + '/s-' + rnd + '.php/s/' + tok;}
         function shareFile(n,t,expAt,maxUses,curUses,startAt){
-            if(!t){pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="c_quick"><input name="n" value="'+n.replace(/"/g,'&quot;')+'">');return;}
+            if(!t){pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="c_quick"><input name="n" value="'+n.replace(/"/g,'&#34;')+'">');return;}
             $('md').style.display='flex';$('mb_cnt').className='mb';$('mt').innerText=t?'<?=T('modify')?>':'<?=T('sharing')?>';
             let lk=t?genLink(t):'';
             // Optimized Layout
@@ -715,12 +765,12 @@ class Dav {
                 let exp_custom=$('expVal')?$('expVal').value:7,exp_unit=$('expUnit')?$('expUnit').value:'days';
                 let max_custom=$('maxVal')?$('maxVal').value:10;
                 let delay_custom=$('delayVal')?$('delayVal').value:30, delay_unit=$('delayUnit')?$('delayUnit').value:'mins';
-                pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="u"><input name="n" value="'+n.replace(/"/g,'&quot;')+'"><input name="ntok" value="'+tok.replace(/"/g,'&quot;')+'"><input name="otok" value="'+t.replace(/"/g,'&quot;')+'"><input name="exp" value="'+exp+'"><input name="max" value="'+max+'"><input name="exp_custom" value="'+exp_custom+'"><input name="exp_unit" value="'+exp_unit+'"><input name="max_custom" value="'+max_custom+'"><input name="cur_uses" value="'+curUses+'"><input name="delay" value="'+delay+'"><input name="delay_val" value="'+delay_custom+'"><input name="delay_unit" value="'+delay_unit+'"><input name="pwd" value="'+pwd.replace(/"/g,'&quot;')+'">');
+                pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="u"><input name="n" value="'+n.replace(/"/g,'&#34;')+'"><input name="ntok" value="'+tok.replace(/"/g,'&#34;')+'"><input name="otok" value="'+t.replace(/"/g,'&#34;')+'"><input name="exp" value="'+exp+'"><input name="max" value="'+max+'"><input name="exp_custom" value="'+exp_custom+'"><input name="exp_unit" value="'+exp_unit+'"><input name="max_custom" value="'+max_custom+'"><input name="cur_uses" value="'+curUses+'"><input name="delay" value="'+delay+'"><input name="delay_val" value="'+delay_custom+'"><input name="delay_unit" value="'+delay_unit+'"><input name="pwd" value="'+pwd.replace(/"/g,'&#34;')+'">');
             };
             $('mc').appendChild(saveBtn);
             if(t){
                 const delBtn=document.createElement('button');delBtn.className='btn bd';delBtn.style.width='100%';delBtn.style.marginTop='12px';delBtn.innerText='<?=T('sh_del')?>';
-                delBtn.onclick=()=>{if(confirm('<?=T('tip')?>')) pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="d"><input name="n" value="'+n.replace(/"/g,'&quot;')+'"><input name="otok" value="'+t.replace(/"/g,'&quot;')+'">');};
+                delBtn.onclick=()=>{if(confirm('<?=T('tip')?>')) pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="d"><input name="n" value="'+n.replace(/"/g,'&#34;')+'"><input name="otok" value="'+t.replace(/"/g,'&#34;')+'">');};
                 $('mc').appendChild(delBtn);
             }
             $('exp').onchange=function(){$('custExp').style.display=this.value==='custom'?'block':'none';};
@@ -739,7 +789,7 @@ class Dav {
         }
         window.onclick=e=>{if(e.target.className==='mod') cl();};
         const quick='<?=$quickS?>';
-        if(quick){ $('q_lnk').value=genLink(quick); copyLink('q_lnk'); history.replaceState(null,'',location.pathname+location.search.replace(/[?&]quick=[^&]+/, '').replace(/^&/, '?')); }
+        if(quick){ $('q_lnk').value=genLink(quick); copyLink('q_lnk'); let u=new URL(window.location.href); u.searchParams.delete('quick'); history.replaceState(null,'',u.toString()); }
 
         // Drag & Drop
         window.addEventListener('dragover', e => {e.preventDefault(); document.body.classList.add('drop-active');});
@@ -754,4 +804,7 @@ class Dav {
                  fetch(window.location.href, {method:'POST', body:dt}).then(r=>{if(r.ok) window.location.reload();});
              }
         });
-        </script></body></html><?php } } ?>
+        <?php $js_code = ob_get_clean(); ?>
+<script data-cfasync="false">
+var _s=document.createElement('script');_s.src='data:text/javascript;base64,'+'<?=base64_encode($js_code)?>';document.head.appendChild(_s);
+</script></body></html><?php } } ?>

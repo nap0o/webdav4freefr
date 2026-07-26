@@ -1,0 +1,36 @@
+# 启用 PHP8.5（Free.fr 虚拟主机）
+<ifDefine Free>
+    PHP85 1
+    ErrorDocument 400 /index.php
+    ErrorDocument 401 /index.php
+    ErrorDocument 403 /index.php
+    ErrorDocument 404 /index.php
+    ErrorDocument 405 /index.php
+    ErrorDocument 500 /index.php
+    ErrorDocument 501 /index.php
+    ErrorDocument 502 /index.php
+    ErrorDocument 503 /index.php
+</ifDefine>
+
+# 保护 .htaccess 文件
+<Files .htaccess>
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# 禁用目录列表显示
+Options All -Indexes
+
+# 仅在非 Free.fr 虚拟主机上激活重写规则（伪静态）
+<IfDefine !Free>
+    Options +FollowSymlinks -Indexes
+    <IfModule mod_rewrite.c>
+        RewriteEngine On
+        RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+        RewriteBase /
+        RewriteRule ^index\.php$ - [L]
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule . index.php [L]
+    </IfModule>
+</IfDefine>

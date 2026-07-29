@@ -24,7 +24,8 @@ $auth_users = [
 if(LOG_ENABLED && !file_exists(LOG_PATH)) { @mkdir(LOG_PATH, 0755, true); }
 if(LOG_ENABLED && !file_exists(LOG_PATH.'/.htaccess')) { @file_put_contents(LOG_PATH.'/.htaccess', "Deny from all"); }
 if(session_status()===PHP_SESSION_NONE) {
-    session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'domain' => '', 'secure' => true, 'httponly' => true, 'samesite' => 'Lax']);
+    $is_secure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (isset($_SERVER['HTTP_X_PROXY_PROTO']) && $_SERVER['HTTP_X_PROXY_PROTO'] === 'https') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+    session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'domain' => '', 'secure' => $is_secure, 'httponly' => true, 'samesite' => 'Lax']);
     session_start();
 }
 if(empty($_SESSION['t'])) $_SESSION['t']=bin2hex(random_bytes(32));
@@ -249,13 +250,15 @@ if(!$auth_ok) {
         } else {
             ?>
             <!DOCTYPE html><html lang="<?=$lang??'cn'?>"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EasyWebDAV</title>
-            <style>:root{--bg-g:linear-gradient(135deg, #e0f7fa 0%, #fce4ec 100%);--bg:rgba(255,255,255,0.94);--tx:#263238;--bd:#cfd8dc;--p:#5c6bc0;--pd:#3949ab;--er:#ef5350;--sh:0 12px 32px -8px rgba(0,0,0,0.08)}.dark{--bg-g:linear-gradient(135deg, #1a1c29 0%, #25273c 100%);--bg:rgba(30,32,42,0.96);--tx:#b0b8c4;--bd:#374151;--p:#818cf8;--pd:#6366f1;--er:#f87171;--sh:0 12px 32px -8px rgba(0,0,0,0.4)}body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,Roboto,sans-serif;background:var(--bg-g);color:var(--tx);display:flex;justify-content:center;align-items:center;height:100vh;background-attachment:fixed;line-height:1.6}.box{background:var(--bg);padding:40px 36px;border-radius:20px;box-shadow:var(--sh);border:1px solid var(--bd);width:100%;max-width:320px;backdrop-filter:blur(20px);box-sizing:border-box}h2{margin-top:0;color:var(--tx);font-size:26px;font-weight:600;text-align:center;margin-bottom:24px}hr{border:none;border-top:1px solid var(--bd);margin-bottom:28px}.fg{margin-bottom:20px;text-align:left}label{display:block;margin-bottom:8px;font-size:13px;color:var(--pd);font-weight:600}input{width:100%;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;background:rgba(255,255,255,0.8);color:var(--tx);box-sizing:border-box;font-size:15px;transition:all .2s}.dark input{background:rgba(40,40,50,0.8)}input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 4px rgba(92,107,192,0.15)}button{background:var(--p);color:#fff;border:none;padding:12px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:8px;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.04)}button:hover{background:var(--pd);transform:translateY(-1px);box-shadow:0 4px 14px rgba(92,107,192,0.3)}.err{color:var(--er);font-size:14px;margin-bottom:15px;text-align:center;font-weight:600}</style></head>
+            <style>:root{--bg-g:linear-gradient(135deg, #e0f7fa 0%, #fce4ec 100%);--bg:rgba(255,255,255,0.94);--tx:#263238;--bd:#cfd8dc;--p:#5c6bc0;--pd:#3949ab;--er:#ef5350;--sh:0 12px 32px -8px rgba(0,0,0,0.08)}.dark{--bg-g:linear-gradient(135deg, #1a1c29 0%, #25273c 100%);--bg:rgba(30,32,42,0.96);--tx:#b0b8c4;--bd:#374151;--p:#818cf8;--pd:#6366f1;--er:#f87171;--sh:0 12px 32px -8px rgba(0,0,0,0.4)}body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,BlinkMacSystemFont,Roboto,sans-serif;background:var(--bg-g);color:var(--tx);display:flex;justify-content:center;align-items:center;height:100vh;background-attachment:fixed;line-height:1.6}.box{background:var(--bg);padding:40px 36px;border-radius:20px;box-shadow:var(--sh);border:1px solid var(--bd);width:100%;max-width:320px;backdrop-filter:blur(20px);box-sizing:border-box}h2{margin-top:0;color:var(--tx);font-size:26px;font-weight:600;text-align:center;margin-bottom:24px}hr{border:none;border-top:1px solid var(--bd);margin-bottom:28px}.fg{margin-bottom:20px;text-align:left}label{display:block;margin-bottom:8px;font-size:13px;color:var(--pd);font-weight:600}input{width:100%;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;background:rgba(255,255,255,0.8);color:var(--tx);box-sizing:border-box;font-size:15px;transition:all .2s}.dark input{background:rgba(40,40,50,0.8)}input:focus{outline:none;border-color:var(--p);box-shadow:0 0 0 4px rgba(92,107,192,0.15)}button{background:var(--p);color:#fff;border:none;padding:12px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;width:100%;margin-top:8px;transition:all .2s ease;box-shadow:0 2px 4px rgba(0,0,0,0.04)}button:hover{background:var(--pd);transform:translateY(-1px);box-shadow:0 4px 14px rgba(92,107,192,0.3)}.err{color:var(--er);font-size:14px;margin-bottom:15px;text-align:center;font-weight:600}.ft{margin-top:24px;text-align:center;font-size:12px;color:#78909c;display:flex;flex-direction:row;justify-content:center;align-items:center;gap:8px}.gh-lnk{display:inline-flex;align-items:center;justify-content:center;color:#78909c;transition:all 0.2s;text-decoration:none}.gh-lnk:hover{color:var(--p);transform:scale(1.1)}.gh-lnk svg{fill:currentColor}</style></head>
             <body class="<?=$_COOKIE['dk']??''?>"><div class="box"><h2>EasyWebDAV</h2><hr>
             <form method="post">
             <?php if(isset($login_err)): ?><div class="err"><?=$login_err?></div><?php endif; ?>
             <div class="fg"><label>Username</label><input type="text" name="login_u" required autofocus maxlength="256"></div>
             <div class="fg"><label>Password</label><input type="password" name="login_p" required maxlength="256"></div>
-            <button>Sign in</button></form></div></body></html>
+            <button>Sign in</button></form>
+            <div class="ft"><span>&copy; <?=date('Y')?> WebDAV For Free.Fr</span><a href="https://github.com/nap0o/webdav4freefr" target="_blank" class="gh-lnk" title="GitHub Repo"><svg width="18" height="18" viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"/></svg></a></div>
+            </div></body></html>
             <?php
             exit;
         }
@@ -700,11 +703,11 @@ class Dav {
             <?php if($this->req!=='/'): $pp=array_filter(explode('/',$this->req)); array_pop($pp); ?>
             <a href="<?=$this->uri.'/'.implode('/',array_map('rawurlencode',$pp))?>" class="btn"><?=T('back')?></a>
             <?php endif;?>
-            <form method="post" enctype="multipart/form-data" style="margin:0;display:flex">
+            <form method="post" enctype="multipart/form-data" style="margin:0;display:flex" onsubmit="return false">
                 <input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=htmlspecialchars($this->req)?>">
                 <div class="btn-group">
-                    <label class="btn bp" title="<?=T('up')?>"><?=T('up')?><input type="file" name="f[]" hidden multiple onchange="this.form.submit()"></label>
-                    <label class="btn bp" title="<?=T('up_folder')?>"><?=T('up_folder')?><input type="file" name="f[]" hidden multiple webkitdirectory mozdirectory onchange="this.form.submit()"></label>
+                    <label class="btn bp" title="<?=T('up')?>"><?=T('up')?><input type="file" name="f[]" hidden multiple onchange="doUpload(this.files); this.value='';"></label>
+                    <label class="btn bp" title="<?=T('up_folder')?>"><?=T('up_folder')?><input type="file" name="f[]" hidden multiple webkitdirectory mozdirectory onchange="doUpload(this.files); this.value='';"></label>
                 </div>
             </form>
             <form method="post" style="display:flex;gap:8px;margin:0;flex:1"><input type="hidden" name="t" value="<?=$csrf?>"><input type="hidden" name="cur_dir" value="<?=htmlspecialchars($this->req)?>"><input name="md" placeholder="<?=T('new')?>" required style="padding:8px 12px;border:2px solid var(--bd);border-radius:8px;outline:none;background:rgba(255,255,255,0.8);color:var(--tx);flex:1;min-width:100px;max-width:200px;font-size:14px"><button class="btn"><?=T('cr')?></button></form>
@@ -843,18 +846,49 @@ class Dav {
         const quick='<?=$quickS?>';
         if(quick){ $('q_lnk').value=genLink(quick); copyLink('q_lnk'); let u=new URL(window.location.href); u.searchParams.delete('quick'); history.replaceState(null,'',u.toString()); }
 
+        function doUpload(files) {
+            if(!files || files.length === 0) return;
+            const dt = new FormData();
+            dt.append('t', csrf); dt.append('cur_dir', cur);
+            for(let i=0; i<files.length; i++) dt.append('f[]', files[i]);
+            
+            const pBox = document.createElement('div');
+            pBox.style.cssText = 'position:fixed;bottom:20px;right:20px;width:300px;background:var(--bg);box-shadow:var(--sh);border:1px solid var(--bd);border-radius:12px;padding:16px;z-index:999;backdrop-filter:blur(10px);';
+            const pTxt = document.createElement('div');
+            pTxt.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:8px;color:var(--tx)';
+            pTxt.innerText = '<?=T("up")?>... (0%)';
+            const pTrk = document.createElement('div');
+            pTrk.style.cssText = 'width:100%;height:8px;background:rgba(0,0,0,0.05);border-radius:4px;overflow:hidden;';
+            const pBar = document.createElement('div');
+            pBar.style.cssText = 'width:0%;height:100%;background:var(--p);transition:width 0.2s;';
+            pTrk.appendChild(pBar);
+            pBox.appendChild(pTxt);
+            pBox.appendChild(pTrk);
+            document.body.appendChild(pBox);
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', window.location.href, true);
+            xhr.upload.onprogress = e => {
+                if(e.lengthComputable) {
+                    let pct = Math.round((e.loaded / e.total) * 100);
+                    pBar.style.width = pct + '%';
+                    pTxt.innerText = '<?=T("up")?>... (' + pct + '%) ' + (e.loaded/1024/1024).toFixed(1) + 'MB';
+                }
+            };
+            xhr.onload = () => {
+                if(xhr.status >= 200 && xhr.status < 300) window.location.reload();
+                else { pBox.remove(); showToast('Upload failed: ' + xhr.status); }
+            };
+            xhr.onerror = () => { pBox.remove(); showToast('Upload error'); };
+            xhr.send(dt);
+        }
+
         // Drag & Drop
         window.addEventListener('dragover', e => {e.preventDefault(); document.body.classList.add('drop-active');});
         window.addEventListener('dragleave', e => {if(e.relatedTarget === null || e.target === document.querySelector('.drop-overlay')) document.body.classList.remove('drop-active');});
         window.addEventListener('drop', e => {
              e.preventDefault(); document.body.classList.remove('drop-active');
-             if(e.dataTransfer.files.length > 0) {
-                 const dt = new FormData();
-                 dt.append('t', csrf); dt.append('cur_dir', cur);
-                 for(let i=0; i<e.dataTransfer.files.length; i++) dt.append('f[]', e.dataTransfer.files[i]);
-                 showToast('Uploading...');
-                 fetch(window.location.href, {method:'POST', body:dt}).then(r=>{if(r.ok) window.location.reload();});
-             }
+             doUpload(e.dataTransfer.files);
         });
         <?php $js_code = ob_get_clean(); ?>
 <script data-cfasync="false">

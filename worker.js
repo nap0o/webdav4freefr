@@ -44,9 +44,13 @@ async function handleRequest(request) {
 
     const targetUrl = new URL(url.pathname + url.search, TARGET_URL);
 
+    const headers = new Headers(request.headers);
+    headers.set('X-Proxy-Host', url.host);
+    headers.set('X-Proxy-Proto', url.protocol.replace(':', ''));
+
     const newRequest = new Request(targetUrl, {
         method: request.method,
-        headers: request.headers,
+        headers: headers,
         body: request.body,
         redirect: 'manual'
     });

@@ -37,8 +37,8 @@ define('S_PATH', ROOT.'/storage');
 define('SHARE_F', ROOT.'/.shares.php');
 define('DENY', ['.','..','.htaccess','.shares.php',S_NAME,basename(__FILE__)]);
 
-$proto = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http');
-$host  = $_SERVER['HTTP_HOST'];
+$proto = $_SERVER['HTTP_X_PROXY_PROTO'] ?? $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http');
+$host  = $_SERVER['HTTP_X_PROXY_HOST'] ?? $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'];
 $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
 $basePath = ($scriptDir === '/' || $scriptDir === '\\') ? '' : rtrim(str_replace('\\', '/', $scriptDir), '/');
 define('BASE', $proto."://".$host.$basePath);
@@ -93,11 +93,13 @@ if($shareToken && ctype_alnum($shareToken)){
             
             // 1. Password Check
             if(!empty($share['pwd'])) {
-                $pass_ok = false;
+                $pass_ok = !empty($_SESSION['s_auth_'.$shareToken]);
                 $err_msg = '';
-                if(isset($_POST['sp'])) {
+                if(!$pass_ok && isset($_POST['sp'])) {
                     if(password_verify($_POST['sp'], $share['pwd'])) {
-                        $pass_ok = true;
+                        $_SESSION['s_auth_'.$shareToken] = true;
+                        header("Location: ".$_SERVER['REQUEST_URI']);
+                        exit;
                     } else {
                         $err_msg = 'Invalid Password';
                     }
@@ -167,15 +169,32 @@ if($shareToken && ctype_alnum($shareToken)){
                     header("Content-Length: " . ($end - $start + 1));
                     $fp = fopen($f, 'rb');
                     fseek($fp, $start);
-                    echo fread($fp, $end - $start + 1);
+                    $buffer = 8192;
+                    $pos = $start;
+                    while(!feof($fp) && $pos <= $end) {
+                        $read = fread($fp, min($buffer, $end - $pos + 1));
+                        echo $read;
+                        $pos += strlen($read);
+                        if(ob_get_level() > 0) ob_flush();
+                        flush();
+                    }
                     fclose($fp);
                     exit;
                 }
             }
             
-            header('Content-Disposition: attachment; filename="'.basename($f).'"');
+            $filename = basename($f);
+            $encoded_filename = rawurlencode($filename);
+            header('Content-Disposition: attachment; filename="'.$encoded_filename.'"; filename*=UTF-8\'\''.$encoded_filename);
             header('Content-Length: '.$size);
-            readfile($f); 
+            $fp = fopen($f, 'rb');
+            $buffer = 8192;
+            while(!feof($fp)) {
+                echo fread($fp, $buffer);
+                if(ob_get_level() > 0) ob_flush();
+                flush();
+            }
+            fclose($fp); 
             exit;
         }
     }
@@ -465,9 +484,20 @@ class Dav {
         if($this->isDenied(basename($this->path))){http_response_code(403);exit;}
         $dl=isset($_GET['dl']);$m=$this->mime($this->path);
         header('Content-Type: '.($dl?'application/octet-stream':$m));header('Content-Length: '.filesize($this->path));header('ETag: "'.hash_file('md5',$this->path).'"');
-        header('Content-Disposition: '.($dl?'attachment':'inline').'; filename="'.basename($this->path).'"');
+        $filename = basename($this->path);
+        $encoded_filename = rawurlencode($filename);
+        header('Content-Disposition: '.($dl?'attachment':'inline').'; filename="'.$encoded_filename.'"; filename*=UTF-8\'\''.$encoded_filename);
         log_action('FILE_ACCESS', 'File: '.basename($this->path), $_SERVER['PHP_AUTH_USER']??'unknown');
-        if($dl||strpos($m,'text/')!==0) readfile($this->path);
+        if($dl||strpos($m,'text/')!==0) {
+            $fp = fopen($this->path, 'rb');
+            $buffer = 8192;
+            while(!feof($fp)) {
+                echo fread($fp, $buffer);
+                if(ob_get_level() > 0) ob_flush();
+                flush();
+            }
+            fclose($fp);
+        }
         else{header('Content-Security-Policy: default-src \'none\'');echo htmlspecialchars(file_get_contents($this->path),ENT_QUOTES,'UTF-8');}exit;
     }
     private function PUT(){
@@ -754,7 +784,7 @@ class Dav {
                 pf(inputs);
             }
         }
-        function genLink(tok){let rnd = Math.random().toString(36).substring(2,7); return base + '/s-' + rnd + '.php/s/' + tok;}
+        function genLink(tok){return base + '/<?=S_NAME?>?s=' + tok;}
         function shareFile(n,t,expAt,maxUses,curUses,startAt){
             if(!t){pf('<input type="hidden" name="t" value="'+csrf+'"><input name="s_act" value="c_quick"><input name="n" value="'+n.replace(/"/g,'&#34;')+'">');return;}
             $('md').style.display='flex';$('mb_cnt').className='mb';$('mt').innerText=t?'<?=T('modify')?>':'<?=T('sharing')?>';

@@ -144,14 +144,22 @@ if($shareToken && ctype_alnum($shareToken)){
             @file_put_contents(SHARE_F, "<?php\nreturn ".var_export($s,true).";", LOCK_EX);
             log_action('SHARE_ACCESS', 'Token: '.$shareToken.' Path: '.$share['path']);
             
-            // Serve File
+            // Serve File (强化安全沙箱，彻底封堵存储型 XSS)
             $x = strtolower(pathinfo($f, PATHINFO_EXTENSION));
-            $m = ['txt'=>'text/plain','html'=>'text/html','css'=>'text/css','js'=>'application/javascript','json'=>'application/json','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','mp4'=>'video/mp4','pdf'=>'application/pdf','zip'=>'application/zip'];
+            // 对 HTML/SVG 等富文本格式强制降级为普通文本或二进制流，严禁作为 text/html 执行
+            $m = ['txt'=>'text/plain','css'=>'text/css','js'=>'application/javascript','json'=>'application/json','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','mp4'=>'video/mp4','pdf'=>'application/pdf','zip'=>'application/zip'];
             
             $size = filesize($f);
             $start = 0; $end = $size - 1;
+            $filename = basename($f);
+            $encoded_filename = rawurlencode($filename);
+
+            // 强制下发安全沙箱策略与防嗅探头
+            header("Content-Security-Policy: default-src 'none'; sandbox");
+            header('X-Content-Type-Options: nosniff');
             header('Content-Type: '.($m[$x]??'application/octet-stream'));
             header('Accept-Ranges: bytes');
+            header('Content-Disposition: attachment; filename="'.$encoded_filename.'"; filename*=UTF-8\'\''.$encoded_filename);
             
             if(isset($_SERVER['HTTP_RANGE'])) {
                 list(, $range) = explode('=', $_SERVER['HTTP_RANGE'], 2);
@@ -226,6 +234,7 @@ if(!$auth_ok) {
             log_action('LOGIN', 'Web: '.$lu, $lu);
             header("Location: ".BASE.'/'.S_NAME); exit;
         } else {
+            usleep(300000); // 300ms 防爆破延迟，极大增加暴力碰撞的时间成本
             $login_err = 'Invalid credentials';
             log_action('AUTH_FAILED', 'Web user: '.$lu, $lu, 'failed');
         }
@@ -244,6 +253,7 @@ if(!$auth_ok) {
 
     if(!$auth_ok) {
         if($isWebDavReq) {
+            usleep(300000); // 300ms 防爆破延迟，阻断 WebDAV 自动化暴力破解
             header('WWW-Authenticate: Basic realm="EasyWebDAV"');
             header('HTTP/1.0 401 Unauthorized');
             die('Access Denied');
@@ -278,6 +288,8 @@ if(isset($_GET['log_action'])){
         $log_file = LOG_PATH.'/'.date('Y-m-d').'.log';
         if(file_exists($log_file)){header('Content-Type: text/plain');header('Content-Disposition: attachment; filename="log-'.date('Y-m-d').'.txt"');readfile($log_file);exit;}
     }elseif($_GET['log_action']==='clear' && LOG_ENABLED){
+        $t = $_GET['t'] ?? ($_POST['t'] ?? '');
+        if(!hash_equals($_SESSION['t'] ?? '', $t)){ http_response_code(403); die('CSRF'); }
         $log_file = LOG_PATH.'/'.date('Y-m-d').'.log';
         if(file_exists($log_file)){@file_put_contents($log_file, '');log_action('LOG_CLEAR', 'Logs cleared', $u);header("Location: ".BASE.'/'.S_NAME);exit;}
     }
@@ -749,7 +761,7 @@ class Dav {
         </div>
         </div>
         <div id="md" class="mod"><div id="mb_cnt" class="mb sm"><h3 id="mt" style="margin-top:0"></h3><div id="mc"></div><div style="margin-top:24px;text-align:right;display:flex;justify-content:flex-end;gap:12px"><button class="btn" onclick="cl()"><?=T('cc')?></button><button class="btn bp" id="mok"><?=T('ok')?></button></div></div></div>
-        <?php if(LOG_ENABLED): ?><div id="logModal" class="mod" style="display:none"><div class="mb" style="max-width:800px"><h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center"><span><?=T('log_title')?></span><div style="display:flex;gap:8px"><a href="?log_action=download" class="btn" style="font-size:13px"><?=T('log_download')?></a><a href="?log_action=clear" class="btn bd" style="font-size:13px" onclick="return confirm('Clear logs?')"><?=T('log_clear')?></a><button class="btn" onclick="cl()"><?=T('cc')?></button></div></h3><div style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.03);border-radius:10px;padding:16px;margin-top:16px"><pre style="margin:0;font-size:12px;line-height:1.5;color:var(--tx)"><?php if(LOG_ENABLED){$log_file=LOG_PATH.'/'.date('Y-m-d').'.log';echo htmlspecialchars(file_exists($log_file)?file_get_contents($log_file):'No logs today.');} ?></pre></div></div></div><?php endif; ?>
+        <?php if(LOG_ENABLED): ?><div id="logModal" class="mod" style="display:none"><div class="mb" style="max-width:800px"><h3 style="margin-top:0;display:flex;justify-content:space-between;align-items:center"><span><?=T('log_title')?></span><div style="display:flex;gap:8px"><a href="?log_action=download" class="btn" style="font-size:13px"><?=T('log_download')?></a><a href="?log_action=clear&t=<?=$csrf?>" class="btn bd" style="font-size:13px" onclick="return confirm('Clear logs?')"><?=T('log_clear')?></a><button class="btn" onclick="cl()"><?=T('cc')?></button></div></h3><div style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.03);border-radius:10px;padding:16px;margin-top:16px"><pre style="margin:0;font-size:12px;line-height:1.5;color:var(--tx)"><?php if(LOG_ENABLED){$log_file=LOG_PATH.'/'.date('Y-m-d').'.log';echo htmlspecialchars(file_exists($log_file)?file_get_contents($log_file):'No logs today.');} ?></pre></div></div></div><?php endif; ?>
         <input id="q_lnk" value="" hidden>
         <?php ob_start(); ?>
         const $=i=>document.getElementById(i), csrf='<?=$csrf?>', cur=<?=json_encode($this->req)?>, base='<?=BASE?>';

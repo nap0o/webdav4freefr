@@ -49,26 +49,42 @@ free.fr 提供了免费的 PHP 运行环境，非常适合部署该项目。具�
 
 ---
 
-## 🌐 三、 通过 Cloudflare Worker 反向代理绑定自定义域名
+## 🌐 三、 通过 Cloudflare Worker 反向代理绑定自定义域名与 HTTPS
 
-鉴于 free.fr 的免费域名在国内部分地区可能存在网络连通性问题，或者如果您希望使用自己的顶级域名，我们提供了一个基于 Cloudflare Worker 的反代方案。
+Free.fr 原生仅提供 HTTP 服务且国内直连存在网络瓶颈。本项目提供了经过深度定制与 RFC 4918 规范优化的 Cloudflare Worker 反代适配器，支持全自动为网盘套上安全 HTTPS 证书与自定义域名。
 
-1. 打开项目根目录下的 `worker.js`，修改顶部常量配置：
+### 🌟 Worker 核心特性与适配优势
+* **ES Modules 现代架构**：采用 Cloudflare 官方推荐的 `export default { async fetch }` 标准构建。
+* **自定义域名全自动识别**：无需手动硬编码代理域名，无论绑定任意自定义域名还是使用 `*.workers.dev`，脚本均能全自动自适应识别。
+* **WebDAV RFC 4918 协议深度兼容**：
+  * **修复 `MOVE`/`COPY` 报错**：自动双向重写 `Destination` 目标头，彻底杜绝文件重命名和移动时的 `502 Bad Gateway`。
+  * **207 Multi-Status XML 域名重写**：目录遍历输出的 XML 中的源站裸域自动替换为代理域名，防止客户端断联或 Mixed Content。
+  * **Windows 原生驱动器映射兼容**：内置 `MS-Author-Via: DAV` 响应头，完美支持 Windows 资源管理器直接挂载。
+* **流式零缓冲直通**：保持流式传输管道，支持 WebDAV 客户端突破 10MB 限制上传大文件。
+
+---
+
+### 🛠️ 部署步骤
+
+1. **修改源站域名**：
+   打开项目根目录下的 `worker.js`，只需修改顶部的唯一源站常量：
    ```javascript
-   // 替换为你实际的 free.fr 域名
-   const TARGET_DOMAIN = '{你的用户名}.free.fr';
-   
-   // 替换为你准备绑定到 Worker 上的自定义域名
-   const WORKER_DOMAIN = '{你的自定义域名.com}';
+   // 替换为你实际的 free.fr 域名（例如 niuxun.free.fr）
+   const DEFAULT_TARGET_DOMAIN = '{你的用户名}.free.fr';
    ```
-2. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，在左侧导航栏找到并进入 **Workers & Pages**。
-3. 点击 **Create Application** -> **Create Worker**，随意命名后点击部署。
-4. 部署后点击 **Edit code** 进入代码编辑器。
-5. 将你修改好的 `worker.js` 中的全部代码复制，并覆盖到 Cloudflare Worker 的编辑器中。
-6. 点击右上角的 **Save and Deploy (保存并部署)**。
-7. 最后，将你的自定义域名路由绑定到这个 Worker 上。
+   *(注：无需配置 Worker 代理域名，脚本会自动动态识别当前访问域名；亦可在 Cloudflare 后台 **Settings -> Variables** 中配置环境变量 `TARGET_DOMAIN` 覆盖)*
 
-部署完成后，你就可以通过自定义域名顺畅地访问和使用 WebDAV 服务了！
+2. **创建与部署 Worker**：
+   - 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，在左侧导航栏进入 **Workers & Pages**。
+   - 点击 **Create Application** -> **Create Worker**，命名后点击部署。
+   - 部署完成后点击 **Edit code** 进入代码编辑器。
+   - 将修改好的 `worker.js` 全选并覆盖到 Cloudflare 编辑器中，点击右上角的 **Save and Deploy (保存并部署)**。
+
+3. **绑定自定义域名**：
+   - 进入该 Worker 的 **Settings** -> **Domains & Routes** -> **Add -> Custom Domain**。
+   - 输入您准备好的域名（例如 `dav.yourdomain.com`），根据向导完成 DNS 绑定。
+
+部署完成后，即可使用安全的 `https://你的域名/index.php` 访问 Web 控制台或作为 WebDAV 地址挂载使用！
 
 ---
 

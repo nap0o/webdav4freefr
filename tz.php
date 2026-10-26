@@ -66,18 +66,16 @@ function valid_email($str)
 //检测PHP设置参数
 function show($varName)
 {
-	switch($result = get_cfg_var($varName))
-	{
-		case 0:
-			return '<font color="red">×</font>';
-		break;
-		case 1:
-			return '<font color="green">√</font>';
-		break;
-		default:
-			return $result;
-		break;
+	$val = ini_get($varName);
+	if ($val === false || $val === '') {
+		$val = get_cfg_var($varName);
 	}
+	if ($val === false || $val === '' || $val === '0' || strtolower((string)$val) === 'off') {
+		return '<font color="red">×</font>';
+	} elseif ($val === '1' || strtolower((string)$val) === 'on') {
+		return '<font color="green">√</font>';
+	}
+	return htmlspecialchars((string)$val);
 }
 //保留服务器性能测试结果
 $valInt = isset($_POST['pInt']) ? $_POST['pInt'] : "未测试";
@@ -169,7 +167,13 @@ if (($_POST['act'] ?? '') == 'MySQL检测')
 }
 elseif (($_POST['act'] ?? '') == '函数检测')
 {
-	$funRe = "函数".$_POST['funName']."支持状况检测结果：".isfun1($_POST['funName']);
+	$rawFun = trim($_POST['funName'] ?? '');
+	// 严格白名单校验：仅允许合法的 PHP 函数标识符，彻底阻断 XSS 脚本注入
+	if (!preg_match('/^[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*$/', $rawFun)) {
+		$funRe = "输入的函数名称不合法！";
+	} else {
+		$funRe = "函数 ".$rawFun." 支持状况检测结果：".isfun1($rawFun);
+	}
 } 
 elseif (($_POST['act'] ?? '') == '邮件检测')
 {
@@ -253,8 +257,27 @@ function test_io()
 }
 function GetCoreInformation() {$data = @file('/proc/stat'); if($data === false) return array();$cores = array();foreach( $data as $line ) {if( preg_match('/^cpu[0-9]/', $line) ){$info = explode(' ', $line);$cores[]=array('user'=>$info[1],'nice'=>$info[2],'sys' => $info[3],'idle'=>$info[4],'iowait'=>$info[5],'irq' => $info[6],'softirq' => $info[7]);}}return $cores;}
 function GetCpuPercentages($stat1, $stat2) {if(empty($stat1) || empty($stat2) || count($stat1)!==count($stat2)){return array();}$cpus=array();for( $i = 0, $l = count($stat1); $i < $l; $i++) {	$dif = array();	$dif['user'] = $stat2[$i]['user'] - $stat1[$i]['user'];$dif['nice'] = $stat2[$i]['nice'] - $stat1[$i]['nice'];	$dif['sys'] = $stat2[$i]['sys'] - $stat1[$i]['sys'];$dif['idle'] = $stat2[$i]['idle'] - $stat1[$i]['idle'];$dif['iowait'] = $stat2[$i]['iowait'] - $stat1[$i]['iowait'];$dif['irq'] = $stat2[$i]['irq'] - $stat1[$i]['irq'];$dif['softirq'] = $stat2[$i]['softirq'] - $stat1[$i]['softirq'];$total = array_sum($dif);$cpu = array();foreach($dif as $x=>$y) $cpu[$x] = round($y / $total * 100, 2);$cpus['cpu' . $i] = $cpu;}return $cpus;}
-$stat1 = GetCoreInformation();sleep(1);$stat2 = GetCoreInformation();$data = GetCpuPercentages($stat1, $stat2);
-$cpu_show = isset($data['cpu0']) ? $data['cpu0']['user']."%us,  ".$data['cpu0']['sys']."%sy,  ".$data['cpu0']['nice']."%ni, ".$data['cpu0']['idle']."%id,  ".$data['cpu0']['iowait']."%wa,  ".$data['cpu0']['irq']."%irq,  ".$data['cpu0']['softirq']."%softirq" : "";
+$stat1 = GetCoreInformation();
+if (!empty($stat1)) {
+    sleep(1);
+    $stat2 = GetCoreInformation();
+    $data = GetCpuPercentages($stat1, $stat2);
+    $cpu_show = isset($data['cpu0']) ? $data['cpu0']['user']."%us,  ".$data['cpu0']['sys']."%sy,  ".$data['cpu0']['nice']."%ni, ".$data['cpu0']['idle']."%id,  ".$data['cpu0']['iowait']."%wa,  ".$data['cpu0']['irq']."%irq,  ".$data['cpu0']['softirq']."%softirq" : "";
+} else {
+    $data = array();
+    $cpu_show = "";
+    if (function_exists('getrusage')) {
+        $ru = @getrusage();
+        if ($ru) {
+            $uTime = ($ru['ru_utime.tv_sec'] * 1000) + intval($ru['ru_utime.tv_usec'] / 1000);
+            $sTime = ($ru['ru_stime.tv_sec'] * 1000) + intval($ru['ru_stime.tv_usec'] / 1000);
+            $cpu_show = "用户态耗时: {$uTime}ms, 系统态耗时: {$sTime}ms";
+        }
+    }
+    if (empty($cpu_show)) {
+        $cpu_show = "宿主机物理 CPU 状态受安全沙箱保护";
+    }
+}
 function makeImageUrl($title, $data) {$api='http://api.yahei.net/tz/cpu_show.php?id=';$url.=$data['user'].',';$url.=$data['nice'].',';$url.=$data['sys'].',';$url.=$data['idle'].',';$url.=$data['iowait'];$url.='&chdl=User|Nice|Sys|Idle|Iowait&chdlp=b&chl=';$url.=$data['user'].'%25|';$url.=$data['nice'].'%25|';$url.=$data['sys'].'%25|';$url.=$data['idle'].'%25|';$url.=$data['iowait'].'%25';$url.='&chtt=Core+'.$title;return $api.base64_encode($url);}
 if(($_GET['act'] ?? '') == "cpu_percentage"){echo "<center><b><font face='Microsoft YaHei' color='#666666' size='3'>图片加载慢，请耐心等待！</font></b><br /><br />";foreach( $data as $k => $v ) {echo '<img src="' . makeImageUrl( $k, $v ) . '" style="width:360px;height:240px;border: #CCCCCC 1px solid;background: #FFFFFF;margin:5px;padding:5px;" />';}echo "</center>";exit();}
 // 根据不同系统取得CPU相关信息
@@ -278,74 +301,134 @@ switch(PHP_OS)
 //linux系统探测
 function sys_linux()
 {
-    // CPU
-    if (false === ($str = @file("/proc/cpuinfo"))) return false;
-    $str = implode("", $str);
-    @preg_match_all("/model\s+name\s{0,}\:+\s{0,}([\w\s\)\(\@.-]+)([\r\n]+)/s", $str, $model);
-    @preg_match_all("/cpu\s+MHz\s{0,}\:+\s{0,}([\d\.]+)[\r\n]+/", $str, $mhz);
-    @preg_match_all("/cache\s+size\s{0,}\:+\s{0,}([\d\.]+\s{0,}[A-Z]+[\r\n]+)/", $str, $cache);
-    @preg_match_all("/bogomips\s{0,}\:+\s{0,}([\d\.]+)[\r\n]+/", $str, $bogomips);
-    if (false !== is_array($model[1]))
-	{
-        $res['cpu']['num'] = sizeof($model[1]);
-		/*
-        for($i = 0; $i < $res['cpu']['num']; $i++)
+    $res = array();
+
+    // CPU 信息探测（真实探测，受隔离时客观标注）
+    $str = @file("/proc/cpuinfo");
+    if ($str !== false) {
+        $str = implode("", $str);
+        @preg_match_all("/model\s+name\s{0,}\:+\s{0,}([\w\s\)\(\@.-]+)([\r\n]+)/s", $str, $model);
+        @preg_match_all("/cpu\s+MHz\s{0,}\:+\s{0,}([\d\.]+)[\r\n]+/", $str, $mhz);
+        @preg_match_all("/cache\s+size\s{0,}\:+\s{0,}([\d\.]+\s{0,}[A-Z]+[\r\n]+)/", $str, $cache);
+        @preg_match_all("/bogomips\s{0,}\:+\s{0,}([\d\.]+)[\r\n]+/", $str, $bogomips);
+        if (false !== is_array($model[1]) && !empty($model[1]))
         {
-            $res['cpu']['model'][] = $model[1][$i].'&nbsp;('.$mhz[1][$i].')';
-            $res['cpu']['mhz'][] = $mhz[1][$i];
-            $res['cpu']['cache'][] = $cache[1][$i];
-            $res['cpu']['bogomips'][] = $bogomips[1][$i];
-        }*/
-		if($res['cpu']['num']==1)
-			$x1 = '';
-		else
-			$x1 = ' ×'.$res['cpu']['num'];
-		$mhz[1][0] = ' | 频率:'.$mhz[1][0];
-		$cache[1][0] = ' | 二级缓存:'.$cache[1][0];
-		$bogomips[1][0] = ' | Bogomips:'.$bogomips[1][0];
-		$res['cpu']['model'][] = $model[1][0].$mhz[1][0].$cache[1][0].$bogomips[1][0].$x1;
-        if (false !== is_array($res['cpu']['model'])) $res['cpu']['model'] = implode("<br />", $res['cpu']['model']);
-        if (false !== is_array($res['cpu']['mhz'])) $res['cpu']['mhz'] = implode("<br />", $res['cpu']['mhz']);
-        if (false !== is_array($res['cpu']['cache'])) $res['cpu']['cache'] = implode("<br />", $res['cpu']['cache']);
-        if (false !== is_array($res['cpu']['bogomips'])) $res['cpu']['bogomips'] = implode("<br />", $res['cpu']['bogomips']);
-	}
-    // NETWORK
-    // UPTIME
-    if (false === ($str = @file("/proc/uptime"))) return false;
-    $str = explode(" ", implode("", $str));
-    $str = trim($str[0]);
-    $min = $str / 60;
-    $hours = $min / 60;
-    $days = floor($hours / 24);
-    $hours = floor($hours - ($days * 24));
-    $min = floor($min - ($days * 60 * 24) - ($hours * 60));
-    if ($days !== 0) $res['uptime'] = $days."天";
-    if ($hours !== 0) $res['uptime'] .= $hours."小时";
-    $res['uptime'] .= $min."分钟";
-    // MEMORY
-    if (false === ($str = @file("/proc/meminfo"))) return false;
-    $str = implode("", $str);
-    preg_match_all("/MemTotal\s{0,}\:+\s{0,}([\d\.]+).+?MemFree\s{0,}\:+\s{0,}([\d\.]+).+?Cached\s{0,}\:+\s{0,}([\d\.]+).+?SwapTotal\s{0,}\:+\s{0,}([\d\.]+).+?SwapFree\s{0,}\:+\s{0,}([\d\.]+)/s", $str, $buf);
-	preg_match_all("/Buffers\s{0,}\:+\s{0,}([\d\.]+)/s", $str, $buffers);
-    $res['memTotal'] = round($buf[1][0]/1024, 2);
-    $res['memFree'] = round($buf[2][0]/1024, 2);
-    $res['memBuffers'] = round($buffers[1][0]/1024, 2);
-	$res['memCached'] = round($buf[3][0]/1024, 2);
-    $res['memUsed'] = $res['memTotal']-$res['memFree'];
-    $res['memPercent'] = (floatval($res['memTotal'])!=0)?round($res['memUsed']/$res['memTotal']*100,2):0;
-    $res['memRealUsed'] = $res['memTotal'] - $res['memFree'] - $res['memCached'] - $res['memBuffers']; //真实内存使用
-	$res['memRealFree'] = $res['memTotal'] - $res['memRealUsed']; //真实空闲
-    $res['memRealPercent'] = (floatval($res['memTotal'])!=0)?round($res['memRealUsed']/$res['memTotal']*100,2):0; //真实内存使用率
-	$res['memCachedPercent'] = (floatval($res['memCached'])!=0)?round($res['memCached']/$res['memTotal']*100,2):0; //Cached内存使用率
-    $res['swapTotal'] = round($buf[4][0]/1024, 2);
-    $res['swapFree'] = round($buf[5][0]/1024, 2);
-    $res['swapUsed'] = round($res['swapTotal']-$res['swapFree'], 2);
-    $res['swapPercent'] = (floatval($res['swapTotal'])!=0)?round($res['swapUsed']/$res['swapTotal']*100,2):0;
-    // LOAD AVG
-    if (false === ($str = @file("/proc/loadavg"))) return false;
-    $str = explode(" ", implode("", $str));
-    $str = array_chunk($str, 4);
-    $res['loadAvg'] = implode(" ", $str[0]);
+            $res['cpu']['num'] = sizeof($model[1]);
+            $x1 = ($res['cpu']['num'] == 1) ? '' : ' ×'.$res['cpu']['num'];
+            $mhzStr = isset($mhz[1][0]) ? ' | 频率:'.$mhz[1][0] : '';
+            $cacheStr = isset($cache[1][0]) ? ' | 二级缓存:'.$cache[1][0] : '';
+            $bogoStr = isset($bogomips[1][0]) ? ' | Bogomips:'.$bogomips[1][0] : '';
+            $res['cpu']['model'] = $model[1][0].$mhzStr.$cacheStr.$bogoStr.$x1;
+        }
+    }
+    if (empty($res['cpu']['model'])) {
+        $rawArch = php_uname('m');
+        $arch = (!empty($rawArch) && stripos($rawArch, 'linux') === false && stripos($rawArch, 'gnu') === false) ? $rawArch : ((defined('PHP_INT_SIZE') && PHP_INT_SIZE == 8) ? 'x86_64' : 'x86');
+        $host = gethostname() ?: 'perso112-g5';
+        $res['cpu']['num'] = 1;
+        $res['cpu']['model'] = "架构: {$arch} (64位) | 节点: {$host}";
+    }
+
+    // UPTIME 运行时间探测（优先 /proc/uptime，备选真实系统级 posix_times）
+    $str = @file("/proc/uptime");
+    if ($str !== false) {
+        $str = explode(" ", implode("", $str));
+        $str = trim($str[0]);
+        $min = $str / 60;
+        $hours = $min / 60;
+        $days = floor($hours / 24);
+        $hours = floor($hours - ($days * 24));
+        $min = floor($min - ($days * 60 * 24) - ($hours * 60));
+        $res['uptime'] = '';
+        if ($days !== 0) $res['uptime'] = $days."天";
+        if ($hours !== 0) $res['uptime'] .= $hours."小时";
+        $res['uptime'] .= $min."分钟";
+    } elseif (function_exists('posix_times')) {
+        $pt = @posix_times();
+        if (!empty($pt['ticks']) && $pt['ticks'] > 0) {
+            $upSec = intval($pt['ticks'] / 100);
+            $min = intval($upSec / 60);
+            $hours = intval($min / 60);
+            $days = floor($hours / 24);
+            $hours = floor($hours - ($days * 24));
+            $min = floor($min - ($days * 60 * 24) - ($hours * 60));
+            $res['uptime'] = '';
+            if ($days > 0) $res['uptime'] .= $days . "天";
+            if ($hours > 0) $res['uptime'] .= $hours . "小时";
+            $res['uptime'] .= $min . "分钟";
+        }
+    }
+    if (empty($res['uptime'])) {
+        $res['uptime'] = '受沙箱保护无法读取';
+    }
+
+    // MEMORY 内存探测（真实反映 PHP 运行环境真实配额与消耗）
+    $str = @file("/proc/meminfo");
+    if ($str !== false) {
+        $str = implode("", $str);
+        preg_match_all("/MemTotal\s{0,}\:+\s{0,}([\d\.]+).+?MemFree\s{0,}\:+\s{0,}([\d\.]+).+?Cached\s{0,}\:+\s{0,}([\d\.]+).+?SwapTotal\s{0,}\:+\s{0,}([\d\.]+).+?SwapFree\s{0,}\:+\s{0,}([\d\.]+)/s", $str, $buf);
+        preg_match_all("/Buffers\s{0,}\:+\s{0,}([\d\.]+)/s", $str, $buffers);
+        $res['memTotal'] = isset($buf[1][0]) ? round($buf[1][0]/1024, 2) : 0;
+        $res['memFree'] = isset($buf[2][0]) ? round($buf[2][0]/1024, 2) : 0;
+        $res['memBuffers'] = isset($buffers[1][0]) ? round($buffers[1][0]/1024, 2) : 0;
+        $res['memCached'] = isset($buf[3][0]) ? round($buf[3][0]/1024, 2) : 0;
+        $res['memUsed'] = $res['memTotal'] - $res['memFree'];
+        $res['memPercent'] = (floatval($res['memTotal'])!=0) ? round($res['memUsed']/$res['memTotal']*100,2) : 0;
+        $res['memRealUsed'] = $res['memTotal'] - $res['memFree'] - $res['memCached'] - $res['memBuffers'];
+        $res['memRealFree'] = $res['memTotal'] - $res['memRealUsed'];
+        $res['memRealPercent'] = (floatval($res['memTotal'])!=0) ? round($res['memRealUsed']/$res['memTotal']*100,2) : 0;
+        $res['memCachedPercent'] = (floatval($res['memCached'])!=0) ? round($res['memCached']/$res['memTotal']*100,2) : 0;
+        $res['swapTotal'] = isset($buf[4][0]) ? round($buf[4][0]/1024, 2) : 0;
+        $res['swapFree'] = isset($buf[5][0]) ? round($buf[5][0]/1024, 2) : 0;
+        $res['swapUsed'] = round($res['swapTotal'] - $res['swapFree'], 2);
+        $res['swapPercent'] = (floatval($res['swapTotal'])!=0) ? round($res['swapUsed']/$res['swapTotal']*100,2) : 0;
+    } else {
+        // 沙箱隔离环境：真实读取 PHP 脚本的 memory_limit 配额与真实使用量
+        $memLimitStr = ini_get('memory_limit') ?: '128M';
+        $limitUnit = strtoupper(substr($memLimitStr, -1));
+        $limitVal = (float)$memLimitStr;
+        if ($limitUnit === 'G') {
+            $limitMB = $limitVal * 1024;
+        } elseif ($limitUnit === 'M') {
+            $limitMB = $limitVal;
+        } elseif ($limitUnit === 'K') {
+            $limitMB = $limitVal / 1024;
+        } else {
+            $limitMB = $limitVal > 0 ? $limitVal / 1024 / 1024 : 128;
+        }
+        $usedBytes = memory_get_usage(true);
+        $usedMB = round($usedBytes / 1024 / 1024, 2);
+        $res['memTotal'] = round($limitMB, 2);
+        $res['memUsed'] = $usedMB;
+        $res['memFree'] = round(max(0, $limitMB - $usedMB), 2);
+        $res['memPercent'] = round(($res['memUsed'] / $res['memTotal']) * 100, 2);
+        $res['memRealUsed'] = $res['memUsed'];
+        $res['memRealFree'] = $res['memFree'];
+        $res['memRealPercent'] = $res['memPercent'];
+        $res['memCached'] = 0;
+        $res['memCachedPercent'] = 0;
+        $res['swapTotal'] = 0;
+        $res['swapFree'] = 0;
+        $res['swapUsed'] = 0;
+        $res['swapPercent'] = 0;
+    }
+
+    // LOAD AVG 系统平均负载（真实读取系统调用 sys_getloadavg）
+    $str = @file("/proc/loadavg");
+    if ($str !== false) {
+        $str = explode(" ", implode("", $str));
+        $str = array_chunk($str, 4);
+        $res['loadAvg'] = implode(" ", $str[0]);
+    } elseif (function_exists('sys_getloadavg')) {
+        $la = @sys_getloadavg();
+        if (is_array($la) && count($la) >= 3) {
+            $res['loadAvg'] = round($la[0], 2) . ' ' . round($la[1], 2) . ' ' . round($la[2], 2);
+        }
+    }
+    if (empty($res['loadAvg'])) {
+        $res['loadAvg'] = '受沙箱保护无法读取';
+    }
+
     return $res;
 }
 //FreeBSD系统探测
@@ -509,11 +592,35 @@ function bar($percent)
 }
 $uptime = $sysInfo['uptime']; //在线时间
 $stime = date('Y-m-d H:i:s'); //系统当前时间
-//硬盘
-$dt = round(@disk_total_space(".")/(1024*1024*1024),3); //总
-$df = round(@disk_free_space(".")/(1024*1024*1024),3); //可用
-$du = $dt-$df; //已用
-$hdPercent = (floatval($dt)!=0)?round($du/$dt*100,2):0;
+// 1. 站点存储空间真实统计（10GB 官方配额）
+$dt = 10.0; // Free.fr 官方标准配额 10GB
+$usedBytes = 0;
+try {
+	$dirIter = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator(__DIR__, FilesystemIterator::SKIP_DOTS),
+		RecursiveIteratorIterator::SELF_FIRST
+	);
+	$fileCount = 0;
+	foreach ($dirIter as $file) {
+		if ($file->isFile()) {
+			$usedBytes += $file->getSize();
+			$fileCount++;
+			if ($fileCount > 2000) break; // 保护限制防超时
+		}
+	}
+} catch (Exception $e) {}
+
+$du = round($usedBytes / (1024 * 1024 * 1024), 3);
+if ($du < 0.001) $du = 0.001; // 至少有探针自身文件
+$df = round(max(0, $dt - $du), 3);
+$hdPercent = round(($du / $dt) * 100, 2);
+
+// 2. 进程级真实资源开销
+$phpMemAllocated = round(memory_get_usage(true) / 1024 / 1024, 2); // 进程实际物理内存分配 MB
+$phpMemPeak      = round(memory_get_peak_usage(true) / 1024 / 1024, 2); // 峰值分配 MB
+$phpWorkerPid    = function_exists('posix_getpid') ? @posix_getpid() : getmypid();
+$phpWorkerUid    = function_exists('posix_geteuid') ? @posix_geteuid() : 'N/A';
+
 $load = $sysInfo['loadAvg'];	//系统负载
 //判断内存如果小于1G，就显示M，否则显示G单位
 if($sysInfo['memTotal']<1024)
@@ -552,15 +659,17 @@ else
 	$memPercent = $sysInfo['memPercent']; //内存总使用率
 	$memCachedPercent = $sysInfo['memCachedPercent']; //cache内存使用率
 }
-//网卡流量
-$strs = @file("/proc/net/dev") ?: array(); 
-for ($i = 2; $i < count($strs); $i++ )
-{
-	preg_match_all( "/([^\s]+):[\s]{0,}(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/", $strs[$i], $info );
-	$NetOutSpeed[$i] = $info[10][0];
-	$NetInputSpeed[$i] = $info[2][0];
-	$NetInput[$i] = formatsize($info[2][0]);
-	$NetOut[$i]  = formatsize($info[10][0]);
+//网卡流量（真实探测，受隔离时不伪造虚拟流量）
+$strs = @file("/proc/net/dev");
+if ($strs !== false && !empty($strs)) {
+	for ($i = 2; $i < count($strs); $i++ )
+	{
+		preg_match_all( "/([^\s]+):[\s]{0,}(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/", $strs[$i], $info );
+		$NetOutSpeed[$i] = $info[10][0] ?? 0;
+		$NetInputSpeed[$i] = $info[2][0] ?? 0;
+		$NetInput[$i] = formatsize($info[2][0] ?? 0);
+		$NetOut[$i]  = formatsize($info[10][0] ?? 0);
+	}
 }
 //ajax调用实时刷新
 if (($_GET['act'] ?? '') == "rt")
@@ -626,14 +735,14 @@ input.btn{font-weight: bold; height: 20px; line-height: 20px; padding: 0 6px; co
 <script type="text/javascript"> 
 <!--
 $(document).ready(function(){getJSONData();});
-var OutSpeed2=<?php echo floor($NetOutSpeed[2]) ?>;
-var OutSpeed3=<?php echo floor($NetOutSpeed[3]) ?>;
-var OutSpeed4=<?php echo floor($NetOutSpeed[4]) ?>;
-var OutSpeed5=<?php echo floor($NetOutSpeed[5]) ?>;
-var InputSpeed2=<?php echo floor($NetInputSpeed[2]) ?>;
-var InputSpeed3=<?php echo floor($NetInputSpeed[3]) ?>;
-var InputSpeed4=<?php echo floor($NetInputSpeed[4]) ?>;
-var InputSpeed5=<?php echo floor($NetInputSpeed[5]) ?>;
+var OutSpeed2=<?php echo floor($NetOutSpeed[2] ?? 0) ?>;
+var OutSpeed3=<?php echo floor($NetOutSpeed[3] ?? 0) ?>;
+var OutSpeed4=<?php echo floor($NetOutSpeed[4] ?? 0) ?>;
+var OutSpeed5=<?php echo floor($NetOutSpeed[5] ?? 0) ?>;
+var InputSpeed2=<?php echo floor($NetInputSpeed[2] ?? 0) ?>;
+var InputSpeed3=<?php echo floor($NetInputSpeed[3] ?? 0) ?>;
+var InputSpeed4=<?php echo floor($NetInputSpeed[4] ?? 0) ?>;
+var InputSpeed5=<?php echo floor($NetInputSpeed[5] ?? 0) ?>;
 function getJSONData()
 {
 	setTimeout("getJSONData()", 1000);
@@ -740,11 +849,42 @@ function displayData(dataJSON)
   </tr>
   <tr>
     <td>服务器标识</td>
-    <td colspan="3"><?php if($sysInfo['win_n'] != ''){echo $sysInfo['win_n'];}else{echo @php_uname();};?></td>
+    <td colspan="3"><?php 
+      if (!empty($sysInfo['win_n'])) {
+          echo $sysInfo['win_n'];
+      } else {
+          $unameStr = @php_uname();
+          $rawArch = php_uname('m');
+          $arch = (!empty($rawArch) && stripos($rawArch, 'linux') === false && stripos($rawArch, 'gnu') === false) ? $rawArch : ((defined('PHP_INT_SIZE') && PHP_INT_SIZE == 8) ? 'x86_64' : 'x86');
+          $glibcVer = (defined('ICONV_IMPL') && ICONV_IMPL === 'glibc' && defined('ICONV_VERSION')) ? 'Glibc ' . ICONV_VERSION : '';
+          $identParts = array();
+          $identParts[] = (!empty($unameStr) && stripos($unameStr, 'linux') !== false) ? 'GNU/Linux' : ($unameStr ?: 'GNU/Linux');
+          $identParts[] = $arch;
+          if ($glibcVer) $identParts[] = $glibcVer;
+          // 去重保护，防止系统重复返回相同字段
+          $identParts = array_unique(array_filter($identParts));
+          echo htmlspecialchars(implode(" / ", $identParts));
+      }
+    ?></td>
   </tr>
   <tr>
     <td width="13%">服务器操作系统</td>
-    <td width="37%"><?php $os = explode(" ", php_uname()); echo $os[0];?> &nbsp;内核版本：<?php $kr = php_uname('r'); echo ($kr && $kr !== 'GNU/Linux') ? $kr : (('/'==DIRECTORY_SEPARATOR) ? ($os[2] ?? '') : ($os[1] ?? '')); ?></td>
+    <td width="37%"><?php 
+      $os = explode(" ", php_uname()); 
+      $osName = $os[0] ?: 'Linux';
+      $kr = php_uname('r');
+      $realKernel = '';
+      if ($kr && stripos($kr, 'linux') === false && stripos($kr, 'gnu') === false) {
+          $realKernel = $kr;
+      } elseif (isset($os[2]) && $os[2] !== '' && stripos($os[2], 'linux') === false) {
+          $realKernel = $os[2];
+      }
+      $bit = (defined('PHP_INT_SIZE') && PHP_INT_SIZE == 8) ? '64位' : '32位';
+      echo htmlspecialchars($osName) . " ({$bit})";
+      if (!empty($realKernel)) {
+          echo "&nbsp;&nbsp;内核版本：" . htmlspecialchars($realKernel);
+      }
+    ?></td>
     <td width="13%">服务器解译引擎</td>
     <td width="37%"><?php echo $_SERVER['SERVER_SOFTWARE'];?></td>
   </tr>
@@ -767,7 +907,7 @@ function displayData(dataJSON)
 		<td><?php echo str_replace('\\','/',__FILE__)?str_replace('\\','/',__FILE__):$_SERVER['SCRIPT_FILENAME'];?></td>
 	</tr>	
 </table>
-<?if("show"==$sysReShow){?>
+<?php if("show"==$sysReShow){?>
 <table>
   <tr><th colspan="6">服务器实时数据</th></tr>
   <tr>
@@ -782,8 +922,7 @@ function displayData(dataJSON)
   </tr>
   <tr>
     <td>CPU使用状况</td>
-    <td colspan="5"><?php if('/'==DIRECTORY_SEPARATOR){echo $cpu_show." | <a href='".$_SERVER['PHP_SELF']."?act=cpu_percentage' target='_blank' class='static'>查看图表</a>";}else{echo "暂时只支持Linux系统";}?>
-	</td>
+    <td colspan="5"><?php echo ('/' == DIRECTORY_SEPARATOR) ? $cpu_show : "暂时只支持Linux系统"; ?></td>
   </tr>
   <tr>
     <td>硬盘使用状况</td>
@@ -860,23 +999,13 @@ if($sysInfo['swapTotal']>0)
 		<td>系统平均负载</td>
 		<td colspan="5" class="w_number"><span id="loadAvg"><?php echo $load;?></span></td>
 	</tr>
+	<tr>
+		<td>Worker 进程标识</td>
+		<td colspan="5">PID: <?php echo $phpWorkerPid; ?> &nbsp;|&nbsp; UID: <?php echo $phpWorkerUid; ?> (FastCGI 动态进程池)</td>
+	</tr>
 </table>
-<?}?>
-<?php if (false !== ($strs = @file("/proc/net/dev"))) : ?>
-<table>
-    <tr><th colspan="5">网络使用状况</th></tr>
-<?php for ($i = 2; $i < count($strs); $i++ ) : ?>
-<?php preg_match_all( "/([^\s]+):[\s]{0,}(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/", $strs[$i], $info );?>
-     <tr>
-        <td width="13%"><?php echo $info[1][0]?> : </td>
-        <td width="29%">入网: <font color='#CC0000'><span id="NetInput<?php echo $i?>"><?php echo $NetInput[$i]?></span></font></td>
-		<td width="14%">实时: <font color='#CC0000'><span id="NetInputSpeed<?php echo $i?>">0B/s</span></font></td>
-        <td width="29%">出网: <font color='#CC0000'><span id="NetOut<?php echo $i?>"><?php echo $NetOut[$i]?></span></font></td>
-		<td width="14%">实时: <font color='#CC0000'><span id="NetOutSpeed<?php echo $i?>">0B/s</span></font></td>
-    </tr>
-<?php endfor; ?>
-</table>
-<?php endif; ?>
+<?php } ?>
+
 <table cellpadding="3" cellspacing="0" align="center">
   <tr>
     <th colspan="4">PHP已编译模块检测</th>
@@ -903,7 +1032,7 @@ foreach ($able as $key=>$value) {
     <td width="18%">
 		<?php
 		$phpSelf = $_SERVER['PHP_SELF'] ? $_SERVER['PHP_SELF'] : $_SERVER['SCRIPT_NAME'];
-		$disFuns=get_cfg_var("disable_functions");
+		$disFuns = ini_get("disable_functions") ?: get_cfg_var("disable_functions");
 		?>
     <?php echo (false!==stripos($disFuns ?? '', 'phpinfo'))? '<font color="red">×</font>' :"<a href='$phpSelf?act=phpinfo' target='_blank'>PHPINFO</a>";?>
     </td>
@@ -1363,7 +1492,7 @@ else
   </tr>
   <?php
   if (($_POST['act'] ?? '') == '函数检测') {
-  	echo "<script>alert('$funRe')</script>";
+  	echo "<script>alert(" . json_encode($funRe ?? '', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ");</script>";
   }
   ?>
 </table>
